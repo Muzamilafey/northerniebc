@@ -5,6 +5,7 @@ import { as, seedElection, setupDb, teardownDb } from './helpers.js';
 import { Candidate, Ward } from '../src/models/index.js';
 import { env } from '../src/config/env.js';
 import { parsePastedList } from '../src/modules/parties/registry.js';
+import { aiEnabled } from '../src/integrations/ai.js';
 
 let app: Express;
 let fx: Awaited<ReturnType<typeof seedElection>>;
@@ -205,11 +206,26 @@ describe('loading registered parties', () => {
     for (const url of ['https://example.com/list.pdf', 'http://orpp.or.ke/x.pdf', 'https://orpp.or.ke.evil.test/x.pdf', 'file:///etc/passwd']) {
       expect((await request(app).post('/api/admin/parties/read').set(admin.auth).send({ url })).status).toBe(400);
     }
-    if (!env.ANTHROPIC_API_KEY) {
+    if (!aiEnabled()) {
       const pdf = await request(app).post('/api/admin/parties/read').set(admin.auth).attach('file', Buffer.from('%PDF-1.4\n%test'), { filename: 'list.pdf', contentType: 'application/pdf' });
       expect(pdf.status).toBe(503);
       expect(pdf.body.error.message).toContain('Paste the list as text');
     }
     expect((await request(app).post('/api/admin/parties/read').set((await as(app, 'AGENT')).auth).send({ text: 'X Party (XP)' })).status).toBe(403);
+  });
+});
+
+describe('adding a polling station by hand', () => {
+  it('creates a station in a ward; codes are unique; agents cannot', async () => {
+    const admin = await as(app, 'REGIONAL_ADMIN');
+    const eid = String(fx.election._id);
+    const ward = await Ward.findOne({ electionId: fx.election._id, code: '0242' }).lean();
+    const r = await request(app).post(`/api/admin/elections/${eid}/stations`).set(admin.auth).send({ wardId: String(ward!._id), code: '011049024200101', name: 'Sample Primary School', registeredVoters: 640 });
+    expect(r.status).toBe(201);
+    expect(r.body.station.constituencyId).toBe(String(ward!.constituencyId));
+    expect((await request(app).post(`/api/admin/elections/${eid}/stations`).set(admin.auth).send({ wardId: String(ward!._id), code: '011049024200101', name: 'Dup' })).status).toBe(409);
+    const list = await request(app).get(`/api/public/elections/${eid}/stations`).query({ wardId: String(ward!._id) });
+    expect(list.body.items.map((s: { code: string }) => s.code)).toContain('011049024200101');
+    expect((await request(app).post(`/api/admin/elections/${eid}/stations`).set((await as(app, 'AGENT')).auth).send({ wardId: String(ward!._id), code: 'X123', name: 'Nope' })).status).toBe(403);
   });
 });

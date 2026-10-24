@@ -1,7 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
-import { env } from '../../config/env.js';
+import { AiError, aiEnabled, aiExtract, aiReadsPdf, type AiPart } from '../../integrations/ai.js';
 import { badRequest, notFound, serviceUnavailable } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { Election, FORM_TEMPLATES, FormExtraction, PollingStation, POSITION_LABELS, StoredFile, type Position } from '../../models/index.js';
@@ -42,10 +40,7 @@ const ExtractionSchema = z.object({
 });
 export type ExtractionOutput = z.infer<typeof ExtractionSchema>;
 
-export const extractionEnabled = () => Boolean(env.ANTHROPIC_API_KEY);
-
-let client: Anthropic | undefined;
-const getClient = () => (client ??= new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 120_000, maxRetries: 2 }));
+export const extractionEnabled = aiEnabled;
 
 const SYSTEM = [
   'You transcribe handwritten and printed figures from photographs of Kenyan polling-station election results forms for an independent monitoring platform.',
@@ -60,20 +55,18 @@ const SYSTEM = [
  * must check every figure against the paper form before using it, and reviewers see both.
  */
 export async function extractForm(args: { fileId: string; electionId: string; pollingStationId: string; position: Position; requestedBy: string }) {
-  if (!extractionEnabled()) throw serviceUnavailable('AI form reading is awaiting setup (no Anthropic API key configured)');
+  if (!extractionEnabled()) throw serviceUnavailable('AI form reading is awaiting setup (no AI provider configured under Settings → AI reading)');
   const [file, election, station] = await Promise.all([StoredFile.findById(args.fileId).lean(), Election.findById(args.electionId).lean(), PollingStation.findById(args.pollingStationId).lean()]);
   if (!file || !election || !station) throw notFound();
   if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mime)) throw badRequest('Upload a photo (JPEG, PNG, WebP) or PDF of the form');
   if (!isServable(file.scanStatus)) throw badRequest('The file has not passed malware scanning yet');
+  if (file.mime === 'application/pdf' && !aiReadsPdf()) throw badRequest('The AI reader in use cannot read PDFs. Upload a photo of the form instead.');
   const posCfg = election.positions.find((p) => p.position === args.position);
   const formCode = posCfg?.formCode ?? FORM_TEMPLATES[args.position].formCode;
   const ballot = await eligibleCandidates(station, args.position);
   const data = (await readStoredFile(file.storageKey)).toString('base64');
 
-  const media: Anthropic.Beta.BetaContentBlockParam =
-    file.mime === 'application/pdf'
-      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } }
-      : { type: 'image', source: { type: 'base64', media_type: file.mime as 'image/jpeg' | 'image/png' | 'image/webp', data } };
+  const media: AiPart = file.mime === 'application/pdf' ? { kind: 'pdf', data } : { kind: 'image', mime: file.mime as 'image/jpeg' | 'image/png' | 'image/webp', data };
   const instructions = [
     `Expected form: Form ${formCode} (${POSITION_LABELS[args.position]}).`,
     `Expected polling station: ${station.code} — ${station.name}.`,
@@ -85,33 +78,23 @@ export async function extractForm(args: { fileId: string; electionId: string; po
   let status: 'COMPLETED' | 'UNREADABLE' | 'REFUSED' | 'FAILED' = 'FAILED';
   let out: ExtractionOutput | null = null;
   let usage: { inputTokens: number; outputTokens: number } | undefined;
+  let model = 'unknown';
   const warnings: string[] = [];
   try {
-    const response = await getClient().beta.messages.parse({
-      model: env.FORM_EXTRACTION_MODEL,
-      max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'high', format: betaZodOutputFormat(ExtractionSchema) },
-      system: SYSTEM,
-      messages: [{ role: 'user', content: [media, { type: 'text', text: instructions }] }]
-    });
-    usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
-    if (response.stop_reason === 'refusal') {
-      status = 'REFUSED';
-      warnings.push('The AI model declined to read this image.');
-    } else if (!response.parsed_output) {
-      warnings.push('The AI response could not be read as structured data.');
-    } else {
-      out = response.parsed_output;
+    const r = await aiExtract({ system: SYSTEM, parts: [media, { kind: 'text', text: instructions }], schema: ExtractionSchema, maxTokens: 16000, effort: 'high' });
+    usage = r.usage;
+    model = `${r.provider}:${r.model}`;
+    if (r.status === 'OK') {
+      out = r.data;
       status = out.legible ? 'COMPLETED' : 'UNREADABLE';
+    } else {
+      if (r.status === 'REFUSED') status = 'REFUSED';
+      warnings.push(r.message);
     }
   } catch (err) {
-    if (err instanceof Anthropic.RateLimitError) warnings.push('AI service is busy; try again shortly.');
-    else if (err instanceof Anthropic.AuthenticationError) warnings.push('AI service credentials are invalid.');
-    else if (err instanceof Anthropic.APIError) warnings.push(`AI service error (${err.status ?? 'network'}).`);
-    else throw err;
-    logger.warn({ err: (err as Error).message }, 'Form extraction failed');
+    if (!(err instanceof AiError)) throw err;
+    warnings.push(err.message);
+    logger.warn({ err: err.message }, 'Form extraction failed');
   }
 
   // Server-side checks of the model output; nothing here alters the figures read.
@@ -137,7 +120,7 @@ export async function extractForm(args: { fileId: string; electionId: string; po
     position: args.position,
     formCode,
     requestedBy: args.requestedBy,
-    model: env.FORM_EXTRACTION_MODEL,
+    model,
     status,
     candidateVotes: candidateVotes.map((c) => ({ candidateId: c.candidateId, votes: c.votes, confidence: c.confidence })),
     fields: out?.fields,

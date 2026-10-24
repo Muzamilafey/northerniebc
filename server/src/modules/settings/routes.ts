@@ -36,8 +36,12 @@ export function settingsRouter() {
 
   /** Checks the stored credentials against the provider without exposing them. */
   r.post('/:section/test', admin, async (req, res) => {
-    const section = parse(z.enum(['mpesa', 'smtp', 'kra']), req.params.section);
+    const section = parse(z.enum(['mpesa', 'smtp', 'kra', 'ai']), req.params.section);
     try {
+      if (section === 'ai') {
+        const { testAi } = await import('../../integrations/ai.js');
+        return res.json({ ok: true, message: `Connection succeeded (${await testAi()})` });
+      }
       if (section === 'kra') await testKraCredentials();
       if (section === 'smtp') {
         const t = getTransport();

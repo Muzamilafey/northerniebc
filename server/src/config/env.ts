@@ -109,6 +109,11 @@ const schema = z.object({
   // AI reading of results forms (Claude vision). Disabled unless an API key is configured.
   ANTHROPIC_API_KEY: z.string().optional(),
   FORM_EXTRACTION_MODEL: z.string().default('claude-opus-5-5'),
+  /** 'anthropic' or 'groq'. When unset, whichever provider has a key is used (Anthropic first). */
+  AI_PROVIDER: z.enum(['anthropic', 'groq']).optional(),
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL: z.string().default('meta-llama/llama-4-scout-17b-16e-instruct'),
+  GROQ_BASE_URL: z.string().url().default('https://api.groq.com/openai/v1'),
   FORM_EXTRACTIONS_PER_HOUR: z.coerce.number().int().positive().default(30),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   RUN_WORKERS: bool(true)

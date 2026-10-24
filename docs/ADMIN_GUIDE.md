@@ -16,7 +16,7 @@ All privileged accounts must enrol an authenticator app (My account & security) 
 
 ## Settings (super administrators)
 
-**Settings** holds integration credentials: KRA PIN Checker, M-Pesa (Daraja), SMTP email, and the switch for open agent self-registration. Values saved there override the server's `.env`. Secrets are stored encrypted, are never shown again after saving (leave a field blank to keep it), and every change is audit-logged without the secret values. Use **Test connection** after saving.
+**Settings** holds integration credentials: KRA PIN Checker, M-Pesa (Daraja), SMTP email, AI reading (Anthropic or Groq: provider, key and model), and the switch for open agent self-registration. Values saved there override the server's `.env`. Secrets are stored encrypted, are never shown again after saving (leave a field blank to keep it), and every change is audit-logged without the secret values. Use **Test connection** after saving.
 
 ## Agents: registration and approval
 
@@ -41,7 +41,7 @@ All privileged accounts must enrol an authenticator app (My account & security) 
   - Upload the ORPP PDF.
   - Paste the rows as text, one party per line, e.g. `Orange Democratic Movement (ODM)`.
 
-  Links and PDFs are read by the AI reader, which needs an Anthropic API key; pasted text needs none. You review and correct every row before importing. Rows without an abbreviation, or with a repeated one, must be fixed first. Parties already present are never changed. Then use **Add logo / Change logo / Remove** on each party card; county cards have the same buttons. Photos and party logos appear on public results, station pages and the agent count screen. Removing an aspirant needs a reason. Renaming a party updates its aspirants.
+  Links and PDFs are read by the AI reader (Settings → AI reading); Groq cannot read PDFs, so use a link or pasted text with Groq. Pasted text needs no AI. You review and correct every row before importing. Rows without an abbreviation, or with a repeated one, must be fixed first. Parties already present are never changed. Then use **Add logo / Change logo / Remove** on each party card; county cards have the same buttons. Photos and party logos appear on public results, station pages and the agent count screen. Removing an aspirant needs a reason. Renaming a party updates its aspirants.
 
 ### Images not showing
 

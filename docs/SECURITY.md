@@ -19,7 +19,7 @@
 | Fake or impostor agents | Every agent needs approval by an administrator other than the creator, with identity, phone and accreditation checks; self-registration takes name and KRA PIN from the KRA PIN Checker and locks them; email ownership confirmed |
 | ID-to-name lookup abuse (self-registration) | No name or PIN in public responses (masked name only in the emailed link); per-IP and per-ID rate limits; duplicate IDs and emails get the same generic response; consent recorded |
 | Integration secrets | Super-admin-only Settings page with MFA; AES-256-GCM at rest; write-only (never returned); changes audit-logged without values |
-| Prompt injection via form photos | The model is told the image is untrusted data; structured output with schema validation; unknown candidate IDs discarded; AI output never applied without agent confirmation and never auto-submitted |
+| Prompt injection via form photos | The model (Anthropic or Groq, chosen in Settings) is told the image is untrusted data; its JSON answer is validated against a schema on the server; unknown candidate IDs discarded; AI output never applied without agent confirmation and never auto-submitted |
 | Transport | HTTPS only in production (enforced at boot), HSTS, TLS 1.2+ |
 
 **Testing status.** The automated suites in `server/test` cover authentication, authorisation, injection, oversize bodies, headers, audit tamper detection, idempotency and payment callback abuse. No external penetration test has been performed. Do not describe the platform as production-ready or secure until one has been completed, and until the go-live checklist in DEPLOYMENT.md is done.

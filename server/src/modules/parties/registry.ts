@@ -1,11 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
-import { env } from '../../config/env.js';
+import { activeAi, AiError, aiEnabled, aiExtract, type AiPart } from '../../integrations/ai.js';
 import { badRequest, serviceUnavailable } from '../../lib/errors.js';
-import { logger } from '../../lib/logger.js';
 import { Party } from '../../models/index.js';
-import { extractionEnabled } from '../extraction/service.js';
 
 /** Only the Registrar of Political Parties' own site may be fetched by URL (no open proxy). */
 export const ORPP_HOSTS = ['orpp.or.ke', 'www.orpp.or.ke'];
@@ -27,9 +23,6 @@ const ListSchema = z.object({
 
 export interface PartyRow { number?: string | null; name: string; abbreviation: string | null }
 export interface ReadResult { title: string | null; asAt: string | null; source: string; rows: (PartyRow & { status: 'NEW' | 'EXISTS'; existingId?: string; problem?: string })[]; warnings: string[] }
-
-let client: Anthropic | undefined;
-const getClient = () => (client ??= new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 180_000, maxRetries: 2 }));
 
 const SYSTEM = [
   "You transcribe Kenya's register of fully registered political parties published by the Office of the Registrar of Political Parties (ORPP).",
@@ -83,38 +76,25 @@ const htmlToText = (html: string) =>
     .replace(/\n{3,}/g, '\n\n')
     .slice(0, 400_000);
 
-/** Reads the ORPP register (a fetched link or an uploaded PDF) with Claude. Advisory: an administrator reviews every row before import. */
-async function readWithClaude(doc: { buf: Buffer; mime: string }) {
-  if (!extractionEnabled()) throw serviceUnavailable('Reading a PDF or web page needs the AI reader (no Anthropic API key configured). Paste the list as text instead.');
-  const content: Anthropic.Beta.BetaContentBlockParam[] =
+/** Reads the ORPP register (a fetched link or an uploaded PDF) with the configured AI. Advisory: an administrator reviews every row before import. */
+async function readWithAi(doc: { buf: Buffer; mime: string }) {
+  if (!aiEnabled()) throw serviceUnavailable('Reading a PDF or web page needs AI reading (set up under Settings → AI reading). Paste the list as text instead.');
+  // Groq has a smaller context window than Claude, so long pages are cut to fit.
+  const limit = activeAi()?.provider === 'groq' ? 100_000 : 400_000;
+  const parts: AiPart[] =
     doc.mime === 'application/pdf'
-      ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: doc.buf.toString('base64') } }]
-      : [{ type: 'text', text: `<document>\n${htmlToText(doc.buf.toString('utf8'))}\n</document>` }];
-  content.push({ type: 'text', text: 'Transcribe the fully registered political parties in this document.' });
+      ? [{ kind: 'pdf', data: doc.buf.toString('base64') }]
+      : [{ kind: 'text', text: `<document>\n${htmlToText(doc.buf.toString('utf8')).slice(0, limit)}\n</document>` }];
+  parts.push({ kind: 'text', text: 'Transcribe the fully registered political parties in this document.' });
   try {
-    const stream = getClient().beta.messages.stream({
-      model: env.FORM_EXTRACTION_MODEL,
-      max_tokens: 64000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'medium', format: betaZodOutputFormat(ListSchema) },
-      system: SYSTEM,
-      messages: [{ role: 'user', content }]
-    });
-    const msg = await stream.finalMessage();
-    if (msg.stop_reason === 'refusal') throw serviceUnavailable('The AI reader declined this document. Paste the list as text instead.');
-    if (msg.stop_reason === 'max_tokens') throw serviceUnavailable('The list was too long to read in one go. Paste it as text instead.');
-    const parsed = msg.parsed_output;
-    if (!parsed) throw serviceUnavailable('The AI reader returned no usable list. Paste it as text instead.');
-    if (!parsed.isPartyRegister) throw badRequest('This document does not look like a list of registered political parties.');
-    return parsed;
+    const r = await aiExtract({ system: SYSTEM, parts, schema: ListSchema, maxTokens: 64000, effort: 'medium' });
+    if (r.status === 'REFUSED') throw serviceUnavailable('The AI reader declined this document. Paste the list as text instead.');
+    if (r.status === 'TRUNCATED') throw serviceUnavailable('The list was too long to read in one go. Paste it as text instead.');
+    if (r.status !== 'OK') throw serviceUnavailable(`${r.message} Paste the list as text instead.`);
+    if (!r.data.isPartyRegister) throw badRequest('This document does not look like a list of registered political parties.');
+    return r.data;
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) throw serviceUnavailable('The Anthropic API key is invalid.');
-    if (err instanceof Anthropic.RateLimitError) throw serviceUnavailable('The AI service is busy; try again shortly.');
-    if (err instanceof Anthropic.APIError) {
-      logger.warn({ status: err.status }, 'Party list reading failed');
-      throw serviceUnavailable(`The AI service returned an error (${err.status ?? 'network'}).`);
-    }
+    if (err instanceof AiError) throw serviceUnavailable(err.message);
     throw err;
   }
 }
@@ -139,7 +119,7 @@ export async function readPartyList(input: { url?: string; pdf?: Buffer; text?: 
   const doc = input.url ? await fetchOrpp(input.url) : input.pdf ? { buf: input.pdf, mime: 'application/pdf' } : null;
   if (!doc) throw badRequest('Give the ORPP link, upload the PDF, or paste the list');
   if (input.pdf && doc.buf.subarray(0, 5).toString('latin1') !== '%PDF-') throw badRequest('Upload the PDF published by the ORPP');
-  const parsed = await readWithClaude(doc);
+  const parsed = await readWithAi(doc);
   const warnings = ['Read by AI — compare the rows with the official list before importing.'];
   if (!parsed.parties.length) warnings.push('No parties were found in the document.');
   return { title: parsed.title, asAt: parsed.asAt, source: input.url ?? 'Uploaded PDF', rows: await annotate(parsed.parties), warnings };

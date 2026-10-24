@@ -35,6 +35,13 @@ export const SETTING_FIELDS = {
   },
   registration: {
     AGENT_SELF_REGISTRATION: { secret: false, values: ['true', 'false'] }
+  },
+  ai: {
+    AI_PROVIDER: { secret: false, values: ['anthropic', 'groq'] },
+    ANTHROPIC_API_KEY: { secret: true },
+    FORM_EXTRACTION_MODEL: { secret: false },
+    GROQ_API_KEY: { secret: true },
+    GROQ_MODEL: { secret: false }
   }
 } as const satisfies Record<string, Record<string, { secret: boolean; values?: readonly string[] }>>;
 
