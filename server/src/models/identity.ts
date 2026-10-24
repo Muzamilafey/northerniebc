@@ -52,6 +52,18 @@ const userSchema = new Schema(
       decidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
       decidedAt: { type: Date }
     },
+    /**
+     * Identity from the KRA PIN Checker (self-registration). Name, ID number and KRA PIN are
+     * locked: they cannot be edited by the agent or by administrators.
+     */
+    identity: {
+      source: { type: String, enum: ['ADMIN_ENTERED', 'KRA_PIN_CHECKER'], default: 'ADMIN_ENTERED' },
+      locked: { type: Boolean, default: false },
+      nationalIdEnc: { type: String, select: false },
+      nationalIdIndex: { type: String },
+      kraPinEnc: { type: String, select: false },
+      verifiedAt: { type: Date }
+    },
     mustChangePassword: { type: Boolean, default: true },
     failedLoginCount: { type: Number, default: 0 },
     lockedUntil: { type: Date },
@@ -64,6 +76,8 @@ const userSchema = new Schema(
   },
   { timestamps: true }
 );
+
+userSchema.index({ 'identity.nationalIdIndex': 1 }, { unique: true, partialFilterExpression: { 'identity.nationalIdIndex': { $type: 'string' } } });
 
 export type UserDoc = HydratedDocument<InferSchemaType<typeof userSchema>>;
 export const User = model('User', userSchema);
@@ -89,3 +103,23 @@ const sessionSchema = new Schema(
 );
 sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
 export const Session = model('Session', sessionSchema);
+
+/** Pending agent self-registration, completed only after the email link is used. */
+const agentRegistrationSchema = new Schema(
+  {
+    nationalIdIndex: { type: String, required: true, index: true },
+    nationalIdEnc: { type: String, required: true },
+    kraPinEnc: { type: String, required: true },
+    kraNameEnc: { type: String, required: true },
+    email: { type: String, required: true, lowercase: true, trim: true },
+    phoneEnc: { type: String },
+    tokenHash: { type: String, required: true, unique: true },
+    status: { type: String, enum: ['AWAITING_EMAIL', 'COMPLETED', 'EXPIRED'], default: 'AWAITING_EMAIL' },
+    expiresAt: { type: Date, required: true },
+    ipHash: { type: String },
+    userId: { type: Schema.Types.ObjectId, ref: 'User' }
+  },
+  { timestamps: true }
+);
+agentRegistrationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
+export const AgentRegistration = model('AgentRegistration', agentRegistrationSchema);

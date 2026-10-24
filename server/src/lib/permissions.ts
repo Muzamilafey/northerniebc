@@ -30,6 +30,7 @@ export const PERMISSIONS = {
   'donations.refund': ['SUPER_ADMIN', 'FINANCE_OFFICER'],
   'donations.configure': ['SUPER_ADMIN', 'FINANCE_OFFICER'],
   'audit.view': [...ALL_ADMIN],
+  'settings.manage': ['SUPER_ADMIN'],
   'exports.sensitive': [...ALL_ADMIN, 'FINANCE_OFFICER'],
   'files.read_private': [...ALL_ADMIN, 'COUNTY_ADMIN', 'CONSTITUENCY_SUPERVISOR', 'VERIFICATION_OFFICER', 'FINANCE_OFFICER']
 } as const satisfies Record<string, Role[]>;

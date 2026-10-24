@@ -5,12 +5,13 @@ import { ErrorBox, Field, Loading, PageHeader, Pager, Success } from '../../comp
 import { fmtDateTime } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
 
-interface UserRow { _id: string; fullName: string; email: string; role: Role; agentCode?: string; status: string; lastLoginAt?: string; mfa: { enabled: boolean }; phoneMasked?: string; scope: { countyIds: string[] } }
+interface UserRow { _id: string; fullName: string; email: string; role: Role; agentCode?: string; status: string; lastLoginAt?: string; mfa: { enabled: boolean }; phoneMasked?: string; scope: { countyIds: string[] }; vetting?: { status: string; note?: string; accreditationReference?: string } }
 
 export default function Users() {
   const { user } = useAuth();
   const [page, setPage] = useState(1);
-  const [filter, setFilter] = useState<{ role?: string; q?: string }>({});
+  const [filter, setFilter] = useState<{ role?: string; q?: string; vetting?: string }>({});
+  const [vetting, setVetting] = useState<UserRow | null>(null);
   const list = useApi<{ items: UserRow[]; total: number; limit: number }>('/admin/users', { ...filter, page });
   const { data: counties } = useApi<{ items: { _id: string; name: string }[] }>('/public/counties');
   const [created, setCreated] = useState<{ email: string; agentCode?: string; temporaryPassword: string }>();
@@ -50,7 +51,7 @@ export default function Users() {
   return (
     <div className="space-y-6">
       <PageHeader title="Users & agents" subtitle="Create, suspend, revoke and reassign accounts. Every change is recorded in the audit log." />
-      {created && <Success>Account {created.agentCode ?? created.email} — temporary password: <code className="select-all rounded bg-white px-1">{created.temporaryPassword}</code>. Share it through a secure channel; it is shown only once and must be changed at first sign-in.</Success>}
+      {created && <Success>Account {created.agentCode ?? created.email} — temporary password: <code className="select-all rounded bg-white px-1">{created.temporaryPassword}</code>. Share it through a secure channel; it is shown only once and must be changed at first sign-in. New agents must be approved by a different administrator before they can count.</Success>}
       {err && <ErrorBox error={err} />}
       <form className="card grid gap-3 sm:grid-cols-3" onSubmit={create}>
         <h2 className="font-bold sm:col-span-3">Create account</h2>
@@ -65,21 +66,24 @@ export default function Users() {
       <div className="card">
         <div className="mb-3 flex flex-wrap gap-2">
           <input className="input max-w-xs" placeholder="Search name, email or agent ID" onKeyDown={(e) => e.key === 'Enter' && setFilter({ ...filter, q: (e.target as HTMLInputElement).value })} />
+          <button className={filter.vetting === 'PENDING' ? 'btn-primary' : 'btn-outline'} onClick={() => setFilter(filter.vetting === 'PENDING' ? {} : { vetting: 'PENDING' })}>Agents awaiting approval</button>
           <select className="input max-w-xs" onChange={(e) => setFilter({ ...filter, role: e.target.value || undefined })}><option value="">All roles</option>{Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
         </div>
         {list.loading && <Loading />}
         <div className="overflow-x-auto">
           <table className="table">
-            <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>MFA</th><th>Last login</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Agent approval</th><th>MFA</th><th>Last login</th><th>Actions</th></tr></thead>
             <tbody>
               {list.data?.items.map((u) => (
                 <tr key={u._id}>
                   <td><p className="font-medium">{u.fullName}</p><p className="text-xs text-gray-500">{u.agentCode ?? u.email} {u.phoneMasked}</p></td>
                   <td>{ROLE_LABELS[u.role]}</td>
                   <td>{u.status}</td>
+                  <td>{u.role === 'AGENT' ? <span className={u.vetting?.status === 'APPROVED' ? 'text-green-800' : u.vetting?.status === 'REJECTED' ? 'text-red-700' : 'font-semibold text-amber-800'}>{u.vetting?.status ?? 'PENDING'}</span> : '—'}</td>
                   <td>{u.mfa.enabled ? 'On' : 'Off'}</td>
                   <td className="text-xs">{fmtDateTime(u.lastLoginAt)}</td>
                   <td className="space-x-1 whitespace-nowrap text-xs">
+                    {u.role === 'AGENT' && u.vetting?.status !== 'APPROVED' && <button className="link font-semibold" onClick={() => setVetting(u)}>Review approval</button>}
                     {u.role === 'AGENT' && <button className="link" onClick={() => setSelected(u)}>Assign</button>}
                     {u.status === 'ACTIVE' && <button className="link" onClick={() => action(u, 'suspend')}>Suspend</button>}
                     {u.status === 'SUSPENDED' && <button className="link" onClick={() => action(u, 'reactivate')}>Reactivate</button>}
@@ -95,6 +99,7 @@ export default function Users() {
         {list.data && <Pager page={page} total={list.data.total} limit={list.data.limit} onPage={setPage} />}
       </div>
       {selected && <AssignAgent agent={selected} onClose={() => setSelected(null)} />}
+      {vetting && <VetAgent agent={vetting} onClose={(m) => { setVetting(null); if (m) setCreated(undefined); void list.reload(); if (m?.err) setErr(m.err); }} />}
     </div>
   );
 }
@@ -136,5 +141,36 @@ function AssignAgent({ agent, onClose }: { agent: UserRow; onClose: () => void }
       {msg.ok && <Success>{msg.ok}</Success>}
       {msg.err && <ErrorBox error={msg.err} />}
     </div>
+  );
+}
+
+/** Agent vetting: a different administrator confirms identity, phone and accreditation. */
+function VetAgent({ agent, onClose }: { agent: UserRow; onClose: (m?: { err?: string }) => void }) {
+  const [form, setForm] = useState({ identityChecked: false, phoneChecked: false, accreditationChecked: false, accreditationReference: '', note: '' });
+  const [err, setErr] = useState<string>();
+  const decide = async (decision: 'APPROVE' | 'REJECT') => {
+    try {
+      await api(`/admin/users/${agent._id}/vetting`, { body: { decision, ...form, accreditationReference: form.accreditationReference || undefined } });
+      onClose({});
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  const all = form.identityChecked && form.phoneChecked && form.accreditationChecked && form.accreditationReference.trim().length > 0;
+  return (
+    <section className="card space-y-3 border-brand-500">
+      <div className="flex justify-between"><h2 className="font-bold">Approve agent {agent.fullName} ({agent.agentCode})</h2><button className="link" onClick={() => onClose()}>Close</button></div>
+      <p className="text-sm text-gray-600">Approve only after checking in person or by video. The administrator who created this account cannot approve it.</p>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.identityChecked} onChange={(e) => setForm({ ...form, identityChecked: e.target.checked })} /> National ID / passport checked against the name on the account</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.phoneChecked} onChange={(e) => setForm({ ...form, phoneChecked: e.target.checked })} /> Phone number confirmed (call or SMS code)</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.accreditationChecked} onChange={(e) => setForm({ ...form, accreditationChecked: e.target.checked })} /> Accreditation / appointment letter checked</label>
+      <Field label="Accreditation reference"><input className="input" value={form.accreditationReference} onChange={(e) => setForm({ ...form, accreditationReference: e.target.value })} placeholder="e.g. letter number or accreditation ID" /></Field>
+      <Field label="Note (what you checked)"><textarea className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></Field>
+      {err && <ErrorBox error={err} />}
+      <div className="flex gap-2">
+        <button className="btn-primary" disabled={!all || form.note.length < 5} onClick={() => decide('APPROVE')}>Approve agent</button>
+        <button className="btn-danger" disabled={form.note.length < 5} onClick={() => decide('REJECT')}>Reject</button>
+      </div>
+    </section>
   );
 }

@@ -23,11 +23,28 @@ async function step(name, fn) {
     console.log(`  ✓ ${name}`);
   } catch (e) {
     results.push({ name, ok: false, error: e.message });
+    for (const [i, pg] of openPages.entries()) await pg.screenshot({ path: `${SHOTS}/FAIL-${results.length}-${i}.png`, fullPage: true }).catch(() => undefined);
     console.log(`  ✗ ${name}\n    ${e.message}`);
   }
 }
 
+// Fresh, synthetic DEMO database for every run (non-production only).
+const { execSync } = await import('node:child_process');
+if (process.env.SKIP_RESET !== '1') execSync('npm run db:seed-demo -w server', { env: { ...process.env, DEMO_RESET: '1' }, stdio: 'ignore' });
+
 const browser = await chromium.launch();
+const openPages = [];
+const _newContext = browser.newContext.bind(browser);
+browser.newContext = async (o) => {
+  const c = await _newContext(o);
+  const _np = c.newPage.bind(c);
+  c.newPage = async () => {
+    const pg = await _np();
+    openPages.push(pg);
+    return pg;
+  };
+  return c;
+};
 const mobile = devices['Pixel 7'];
 
 async function login(page, id) {
@@ -35,6 +52,7 @@ async function login(page, id) {
   await page.getByLabel('Email or agent ID').fill(id);
   await page.getByLabel('Password').fill(PW);
   await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 15000 });
 }
 
 const agentCtx = await browser.newContext({ ...mobile });
@@ -56,15 +74,20 @@ await step('agent signs in and sees only the assigned station', async () => {
   await agent.screenshot({ path: `${SHOTS}/02-agent-home.png`, fullPage: true });
 });
 
-await step('counting: increments, undo, manual entry, review and server receipt', async () => {
+await step('counting: each tap recorded live, undo with reason, manual entry, password-confirmed submission', async () => {
   await agent.getByRole('link', { name: /Governor/ }).click();
+  await agent.getByText('Form 37A').first().waitFor();
   const plusA = agent.getByRole('button', { name: 'Add one vote for DEMO Candidate Alpha' });
   for (let i = 0; i < 3; i++) {
     await plusA.click();
-    await agent.waitForTimeout(300);
+    await agent.waitForTimeout(350);
   }
-  await agent.getByRole('button', { name: 'Undo' }).click();
+  await agent.getByText('Live count: 3 taps recorded on server').waitFor({ timeout: 10000 });
+  await agent.getByRole('button', { name: 'Undo last +1' }).click();
+  await agent.getByRole('dialog').getByLabel('Accidental tap').check();
+  await agent.getByRole('dialog').getByRole('button', { name: 'Undo' }).click();
   assert.equal(await agent.getByLabel('Votes for DEMO Candidate Alpha').inputValue(), '2');
+  await agent.getByText('Live count: 4 taps recorded on server').waitFor({ timeout: 10000 });
   await agent.getByLabel('Votes for DEMO Candidate Beta').fill('120');
   await agent.getByLabel('Votes for DEMO Candidate Gamma').fill('76');
   await agent.locator('label', { hasText: 'Total valid votes' }).locator('input').fill('198');
@@ -73,6 +96,9 @@ await step('counting: increments, undo, manual entry, review and server receipt'
   await agent.getByRole('button', { name: 'Review & submit' }).click();
   await agent.getByRole('checkbox').check();
   await agent.getByRole('button', { name: 'Submit result' }).click();
+  // "+" never submits; the agent must confirm their password.
+  await agent.getByRole('dialog').getByLabel('Password').fill(PW);
+  await agent.getByRole('dialog').getByRole('button', { name: 'Confirm & submit' }).click();
   await agent.getByText('Received by server.').waitFor({ timeout: 15000 });
   assert.match(await agent.getByText(/Receipt RCPT-/).innerText(), /RCPT-/);
   await agent.screenshot({ path: `${SHOTS}/04-receipt.png`, fullPage: true });
@@ -94,6 +120,28 @@ await step('offline: MCA result is queued locally, not reported as submitted, th
   await agentCtx.setOffline(false);
   await agent.getByRole('button', { name: 'Sync now' }).click();
   await agent.getByText('Received by server.').waitFor({ timeout: 20000 });
+});
+
+await step('an unapproved agent cannot count until a different administrator approves them', async () => {
+  const p = await (await browser.newContext({ ...mobile })).newPage();
+  await login(p, 'AGT-DEMO0002');
+  await p.getByText(/awaiting approval/).waitFor();
+  const admin = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
+  await login(admin, 'demo-admin@example.org');
+  await admin.goto(`${BASE}/admin/users`);
+  await admin.getByRole('button', { name: 'Agents awaiting approval' }).click();
+  await admin.getByRole('button', { name: 'Review approval' }).first().click();
+  await admin.getByLabel(/National ID/).check();
+  await admin.getByLabel(/Phone number confirmed/).check();
+  await admin.getByLabel(/Accreditation \/ appointment letter/).check();
+  await admin.getByLabel('Accreditation reference').fill('DEMO-ACC-2');
+  await admin.getByLabel('Note (what you checked)').fill('Checked ID and letter in person');
+  await admin.getByRole('button', { name: 'Approve agent' }).click();
+  await admin.getByRole('cell', { name: 'APPROVED' }).first().waitFor();
+  await admin.screenshot({ path: `${SHOTS}/06a-agent-approval.png`, fullPage: true });
+  await p.reload();
+  await p.getByText('DEMO-PS').first().waitFor({ timeout: 5000 }).catch(() => undefined);
+  assert.equal(await p.getByText(/awaiting approval/).count(), 0);
 });
 
 await step('verifier sees the submission and verifies it', async () => {

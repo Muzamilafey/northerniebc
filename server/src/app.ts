@@ -24,6 +24,8 @@ import { agentRouter, publicResultsRouter, verificationRouter } from './modules/
 import { searchRouter } from './modules/search/routes.js';
 import { siteAdminRouter, sitePublicRouter } from './modules/site/routes.js';
 import { usersRouter } from './modules/users/routes.js';
+import { settingsRouter } from './modules/settings/routes.js';
+import { registrationRouter } from './modules/registration/routes.js';
 
 export function createApp() {
   const app = express();
@@ -72,6 +74,8 @@ export function createApp() {
   app.use('/api/admin/donations', donationsAdminRouter());
   app.use('/api/admin/audit-log', auditLogRouter());
   app.use('/api/approvals', approvalsRouter());
+  app.use('/api/admin/settings', settingsRouter());
+  app.use('/api/agent-registration', registrationRouter());
 
   app.use(notFoundHandler);
   app.use(errorHandler);

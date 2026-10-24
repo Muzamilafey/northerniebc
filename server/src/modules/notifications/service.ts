@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { ClientSession, Types } from 'mongoose';
 import { env } from '../../config/env.js';
+import { setting } from '../settings/service.js';
 import { decrypt, encrypt } from '../../lib/crypto.js';
 import { logger } from '../../lib/logger.js';
 import { NotificationJob, StoredFile } from '../../models/system.js';
@@ -16,11 +17,13 @@ export async function enqueueEmail(
   await NotificationJob.create([{ channel: 'EMAIL', toEnc: encrypt(to), subject, text, attachments }], { session });
 }
 
-let transport: nodemailer.Transporter | undefined;
-function getTransport() {
-  if (!env.SMTP_URL) return undefined;
-  transport ??= nodemailer.createTransport(env.SMTP_URL);
-  return transport;
+let transport: { url: string; t: nodemailer.Transporter } | undefined;
+/** SMTP settings come from the admin Settings page (or .env); the transport is rebuilt when they change. */
+export function getTransport() {
+  const url = setting('SMTP_URL');
+  if (!url) return undefined;
+  if (transport?.url !== url) transport = { url, t: nodemailer.createTransport(url) };
+  return transport.t;
 }
 
 /** Sends pending notification jobs. Without SMTP configured, jobs are marked SKIPPED (never "sent"). */
@@ -47,7 +50,7 @@ export async function processNotificationBatch(limit = 20): Promise<number> {
         const f = a.fileId ? await StoredFile.findById(a.fileId) : null;
         if (f) attachments.push({ filename: a.filename ?? 'attachment', content: await readStoredFile(f.storageKey), contentType: f.mime });
       }
-      await t.sendMail({ from: env.MAIL_FROM, to: decrypt(job.toEnc), subject: job.subject, text: job.text, attachments });
+      await t.sendMail({ from: setting('MAIL_FROM') ?? env.MAIL_FROM, to: decrypt(job.toEnc), subject: job.subject, text: job.text, attachments });
       job.status = 'SENT';
       job.sentAt = new Date();
     } catch (err) {

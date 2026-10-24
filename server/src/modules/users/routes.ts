@@ -28,7 +28,8 @@ const actorOf = (u: AuthUser, ip?: string) => ({ id: u.id, role: u.role, label: 
 function sanitizeUser(u: Record<string, unknown> & { phoneEnc?: string | null }) {
   const { phoneEnc, passwordHash: _p, resetTokenHash: _r, ...rest } = u as Record<string, unknown> & { phoneEnc?: string | null };
   const mfa = (rest.mfa as { enabled?: boolean } | undefined) ?? {};
-  return { ...rest, mfa: { enabled: Boolean(mfa.enabled) }, phoneMasked: maskPhone(decryptOptional(phoneEnc)) };
+  const identity = (rest.identity as { source?: string; locked?: boolean } | undefined) ?? {};
+  return { ...rest, mfa: { enabled: Boolean(mfa.enabled) }, identity: { source: identity.source ?? 'ADMIN_ENTERED', locked: Boolean(identity.locked) }, phoneMasked: maskPhone(decryptOptional(phoneEnc)) };
 }
 
 /** Whether `actor` may manage `target` given geographic scope. */
@@ -154,6 +155,7 @@ export function usersRouter() {
     const target = await User.findById(String(req.params.id));
     if (!target) throw notFound();
     if (String(target._id) === actor.id && (body.role || body.scope)) throw forbidden('You cannot change your own role or scope');
+    if (target.identity?.locked && body.fullName && body.fullName !== target.fullName) throw forbidden('This name comes from KRA records and cannot be changed');
     if (!(await canManageUser(actor, target))) throw forbidden();
     const newRole = body.role ?? target.role;
     if (body.role && !canAssignRole(actor, body.role)) throw forbidden('You cannot assign this role');
@@ -250,6 +252,25 @@ export function usersRouter() {
     });
     if (body.decision === 'REJECT') await revokeAllSessions(String(target._id), 'agent_rejected');
     res.json({ vetting: target.vetting });
+  });
+
+  /** Full identity details for vetting (ID number, KRA PIN). Access is audit-logged. */
+  r.get('/users/:id/identity', requirePermission('users.manage'), async (req, res) => {
+    const target = await User.findById(String(req.params.id)).select('+identity.nationalIdEnc +identity.kraPinEnc').lean();
+    if (!target) throw notFound();
+    if (!(await canManageUser(req.user!, target))) throw forbidden();
+    await withTransaction((s) => recordAudit(s, { actor: actorOf(req.user!, req.ip), action: 'user.identity_viewed', entityType: 'User', entityId: String(target._id) }));
+    res.json({
+      fullName: target.fullName,
+      source: target.identity?.source ?? 'ADMIN_ENTERED',
+      locked: Boolean(target.identity?.locked),
+      nationalId: decryptOptional(target.identity?.nationalIdEnc) ?? null,
+      kraPin: decryptOptional(target.identity?.kraPinEnc) ?? null,
+      verifiedAt: target.identity?.verifiedAt ?? null,
+      email: target.email,
+      emailVerified: Boolean(target.emailVerified),
+      phoneMasked: maskPhone(decryptOptional(target.phoneEnc)) ?? null
+    });
   });
 
   r.post('/users/:id/revoke-sessions', canManage, async (req, res) => {

@@ -1,17 +1,18 @@
 import { env, isProd } from '../config/env.js';
+import { setting as S, settingBool } from '../modules/settings/service.js';
 import { fetchJson, type DonationLike, type InitiateContext, type PaymentProvider, type RefundResult, type StatusResult } from './types.js';
 
-const baseUrl = () => process.env.MPESA_BASE_URL || (env.MPESA_ENV === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke');
+const baseUrl = () => process.env.MPESA_BASE_URL || (S('MPESA_ENV') === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke');
 
-let token: { value: string; exp: number } | undefined;
+let token: { value: string; exp: number; key: string } | undefined;
 
 async function accessToken(): Promise<string> {
-  if (token && token.exp > Date.now() + 30_000) return token.value;
-  const auth = Buffer.from(`${env.MPESA_CONSUMER_KEY}:${env.MPESA_CONSUMER_SECRET}`).toString('base64');
+  if (token && token.key === `${S('MPESA_ENV')}:${S('MPESA_CONSUMER_KEY')}` && token.exp > Date.now() + 30_000) return token.value;
+  const auth = Buffer.from(`${S('MPESA_CONSUMER_KEY')}:${S('MPESA_CONSUMER_SECRET')}`).toString('base64');
   const r = await fetchJson(`${baseUrl()}/oauth/v1/generate?grant_type=client_credentials`, { headers: { Authorization: `Basic ${auth}` } });
   const b = r.body as { access_token?: string; expires_in?: string | number };
   if (r.status !== 200 || !b?.access_token) throw new Error(`M-Pesa auth failed (HTTP ${r.status})`);
-  token = { value: b.access_token, exp: Date.now() + Number(b.expires_in ?? 3599) * 1000 };
+  token = { value: b.access_token, exp: Date.now() + Number(b.expires_in ?? 3599) * 1000, key: `${S('MPESA_ENV')}:${S('MPESA_CONSUMER_KEY')}` };
   return token.value;
 }
 
@@ -25,11 +26,11 @@ export function darajaTimestamp(d = new Date()): string {
 }
 
 function stkPassword(ts: string) {
-  return Buffer.from(`${env.MPESA_SHORTCODE}${env.MPESA_PASSKEY}${ts}`).toString('base64');
+  return Buffer.from(`${S('MPESA_SHORTCODE')}${S('MPESA_PASSKEY')}${ts}`).toString('base64');
 }
 
 export function mpesaCallbackUrl() {
-  return `${env.API_BASE_URL}/api/payments/mpesa/callback/${env.MPESA_CALLBACK_TOKEN}`;
+  return `${env.API_BASE_URL}/api/payments/mpesa/callback/${S('MPESA_CALLBACK_TOKEN')}`;
 }
 
 /** STK result codes treated as definitive. Others remain pending for status query / reconciliation. */
@@ -50,15 +51,15 @@ export const mpesaProvider: PaymentProvider = {
   label: 'M-Pesa',
   currency: 'KES',
   get mode() {
-    return env.MPESA_ENV === 'production' ? 'production' : 'sandbox';
+    return S('MPESA_ENV') === 'production' ? 'production' : 'sandbox';
   },
   requires: { phone: true },
   configured() {
-    return Boolean(env.MPESA_CONSUMER_KEY && env.MPESA_CONSUMER_SECRET && env.MPESA_SHORTCODE && env.MPESA_PASSKEY && env.MPESA_CALLBACK_TOKEN && env.MPESA_CALLBACK_TOKEN.length >= 24);
+    return Boolean(S('MPESA_CONSUMER_KEY') && S('MPESA_CONSUMER_SECRET') && S('MPESA_SHORTCODE') && S('MPESA_PASSKEY') && S('MPESA_CALLBACK_TOKEN') && S('MPESA_CALLBACK_TOKEN')!.length >= 24);
   },
   operational() {
     if (!this.configured()) return false;
-    if (isProd) return env.MPESA_ENV === 'production' && env.MPESA_VERIFIED_OPERATIONAL;
+    if (isProd) return S('MPESA_ENV') === 'production' && settingBool('MPESA_VERIFIED_OPERATIONAL');
     return true;
   },
   async initiate(d: DonationLike, ctx: InitiateContext) {
@@ -68,13 +69,13 @@ export const mpesaProvider: PaymentProvider = {
       method: 'POST',
       headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        BusinessShortCode: env.MPESA_SHORTCODE,
+        BusinessShortCode: S('MPESA_SHORTCODE'),
         Password: stkPassword(ts),
         Timestamp: ts,
-        TransactionType: env.MPESA_TRANSACTION_TYPE,
+        TransactionType: S('MPESA_TRANSACTION_TYPE') ?? 'CustomerPayBillOnline',
         Amount: d.amountCents / 100,
         PartyA: ctx.phone,
-        PartyB: env.MPESA_PARTY_B ?? env.MPESA_SHORTCODE,
+        PartyB: S('MPESA_PARTY_B') ?? S('MPESA_SHORTCODE'),
         PhoneNumber: ctx.phone,
         CallBackURL: mpesaCallbackUrl(),
         AccountReference: d.reference.slice(-12),
@@ -98,7 +99,7 @@ export const mpesaProvider: PaymentProvider = {
     const r = await fetchJson(`${baseUrl()}/mpesa/stkpushquery/v1/query`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ BusinessShortCode: env.MPESA_SHORTCODE, Password: stkPassword(ts), Timestamp: ts, CheckoutRequestID: d.providerReference })
+      body: JSON.stringify({ BusinessShortCode: S('MPESA_SHORTCODE'), Password: stkPassword(ts), Timestamp: ts, CheckoutRequestID: d.providerReference })
     });
     const b = (r.body ?? {}) as Record<string, string>;
     if (r.status !== 200 || b.ResponseCode !== '0') {
@@ -108,21 +109,21 @@ export const mpesaProvider: PaymentProvider = {
     return { outcome: classifyStkResult(b.ResultCode), detail: b.ResultDesc, code: String(b.ResultCode) };
   },
   async refund(d: DonationLike, amountCents: number, refundRef: string): Promise<RefundResult> {
-    if (!env.MPESA_INITIATOR_NAME || !env.MPESA_SECURITY_CREDENTIAL) return { accepted: false, detail: 'M-Pesa reversal credentials are not configured' };
+    if (!S('MPESA_INITIATOR_NAME') || !S('MPESA_SECURITY_CREDENTIAL')) return { accepted: false, detail: 'M-Pesa reversal credentials are not configured' };
     if (!d.providerReceipt) return { accepted: false, detail: 'No M-Pesa receipt number on record' };
     const r = await fetchJson(`${baseUrl()}/mpesa/reversal/v1/request`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        Initiator: env.MPESA_INITIATOR_NAME,
-        SecurityCredential: env.MPESA_SECURITY_CREDENTIAL,
+        Initiator: S('MPESA_INITIATOR_NAME'),
+        SecurityCredential: S('MPESA_SECURITY_CREDENTIAL'),
         CommandID: 'TransactionReversal',
         TransactionID: d.providerReceipt,
         Amount: amountCents / 100,
-        ReceiverParty: env.MPESA_SHORTCODE,
+        ReceiverParty: S('MPESA_SHORTCODE'),
         RecieverIdentifierType: '11',
-        ResultURL: `${env.API_BASE_URL}/api/payments/mpesa/reversal/${env.MPESA_CALLBACK_TOKEN}/result`,
-        QueueTimeOutURL: `${env.API_BASE_URL}/api/payments/mpesa/reversal/${env.MPESA_CALLBACK_TOKEN}/timeout`,
+        ResultURL: `${env.API_BASE_URL}/api/payments/mpesa/reversal/${S('MPESA_CALLBACK_TOKEN')}/result`,
+        QueueTimeOutURL: `${env.API_BASE_URL}/api/payments/mpesa/reversal/${S('MPESA_CALLBACK_TOKEN')}/timeout`,
         Remarks: `Refund ${refundRef}`.slice(0, 100),
         Occasion: d.reference.slice(0, 100)
       })
@@ -131,3 +132,10 @@ export const mpesaProvider: PaymentProvider = {
     return { accepted: r.status === 200 && b.ResponseCode === '0', providerRefundId: b.ConversationID ?? b.OriginatorConversationID, detail: b.ResponseDescription ?? b.errorMessage };
   }
 };
+
+/** Requests an OAuth token with the configured credentials (Settings "Test" button). */
+export async function testMpesaAuth() {
+  resetMpesaToken();
+  await accessToken();
+  return { ok: true };
+}

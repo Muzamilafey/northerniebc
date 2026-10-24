@@ -21,6 +21,7 @@ import {
 } from '../src/models/index.js';
 import { hashPassword } from '../src/modules/auth/password.js';
 import { seedReference } from '../src/scripts/seedReference.js';
+import { loadSettings } from '../src/modules/settings/service.js';
 
 export const PASSWORD = 'correct-horse-battery-staple-42';
 let pwHash: string | undefined;
@@ -30,6 +31,7 @@ export async function setupDb(): Promise<Express> {
   for (const name of mongoose.modelNames()) await mongoose.model(name).createCollection().catch(() => undefined);
   await Promise.all(mongoose.modelNames().map((n) => mongoose.model(n).syncIndexes()));
   await seedReference();
+  await loadSettings();
   clearCache();
   return createApp();
 }

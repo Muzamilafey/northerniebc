@@ -89,6 +89,14 @@ const schema = z.object({
 
   TURNSTILE_SECRET_KEY: z.string().optional(),
 
+  // KRA PIN Checker (identity lookup for agent self-registration). Can also be set in Settings.
+  KRA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+  KRA_BASE_URL: z.string().url().optional(),
+  KRA_CONSUMER_KEY: z.string().optional(),
+  KRA_CONSUMER_SECRET: z.string().optional(),
+  AGENT_SELF_REGISTRATION: bool(false),
+  AGENT_REGISTRATIONS_PER_HOUR: z.coerce.number().int().positive().default(5),
+
   // Counting safeguards
   /** Agents must re-enter their password within this window before a result can be submitted. */
   REQUIRE_SUBMIT_REAUTH: bool(true),

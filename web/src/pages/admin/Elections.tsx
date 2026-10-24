@@ -11,7 +11,7 @@ const RULES: [string, string][] = [
   ['CAST_NOT_EXCEEDING_REGISTERED', 'Votes cast do not exceed registered voters'],
   ['REGISTERED_MATCHES_STATION_REGISTER', 'Registered voters match the station register']
 ];
-interface PositionCfg { position: string; enabled: boolean; formReferenceLabel: string; requiredFields: string[]; rules: string[]; requireEvidence: boolean }
+interface PositionCfg { position: string; enabled: boolean; formCode?: string; formReferenceLabel: string; requiredFields: string[]; rules: string[]; requireEvidence: boolean }
 interface Election { _id: string; name: string; slug: string; type: string; electionDate: string; status: string; publishProvisional: boolean; positions: PositionCfg[] }
 
 const NEXT: Record<string, string[]> = { DRAFT: ['ACTIVE'], ACTIVE: ['CLOSED'], CLOSED: ['ACTIVE', 'ARCHIVED'], ARCHIVED: [] };
@@ -72,18 +72,24 @@ export default function Elections() {
 }
 
 function PositionEditor({ election, onSave }: { election: Election; onSave: (p: PositionCfg[]) => void }) {
+  const { data: tpl } = useApi<{ templates: Record<string, { formCode: string; title: string; requiredFields: string[]; rules: string[] }>; note: string }>('/admin/form-templates');
   const [cfg, setCfg] = useState<PositionCfg[]>(() => POSITIONS.map((p) => election.positions.find((x) => x.position === p) ?? { position: p, enabled: false, formReferenceLabel: 'Official results form reference', requiredFields: [], rules: ['CANDIDATE_SUM_EQUALS_VALID'], requireEvidence: true }));
   const upd = (i: number, v: Partial<PositionCfg>) => setCfg(cfg.map((c, j) => (j === i ? { ...c, ...v } : c)));
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
   return (
     <div className="mt-3 space-y-3 rounded-lg border p-3">
+      {tpl && <p className="text-xs text-gray-600">{tpl.note}</p>}
       <p className="text-xs text-amber-900">Apply only the rules and fields that the official forms for this election require. Rules flag discrepancies for reviewers; figures are never adjusted.</p>
       {cfg.map((c, i) => (
         <div key={c.position} className="border-b pb-2">
           <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={c.enabled} onChange={(e) => upd(i, { enabled: e.target.checked })} /> {POSITION_LABELS[c.position]}</label>
           {c.enabled && (
             <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
-              <label>Form reference label<input className="input" value={c.formReferenceLabel} onChange={(e) => upd(i, { formReferenceLabel: e.target.value })} /></label>
+              <div className="space-y-1">
+                <label>Official form code<input className="input" value={c.formCode ?? ''} placeholder={tpl?.templates[c.position]?.formCode} onChange={(e) => upd(i, { formCode: e.target.value.toUpperCase() || undefined })} /></label>
+                <label>Form reference label<input className="input" value={c.formReferenceLabel} onChange={(e) => upd(i, { formReferenceLabel: e.target.value })} /></label>
+                {tpl?.templates[c.position] && <button type="button" className="btn-outline px-2 py-1 text-xs" onClick={() => { const t = tpl.templates[c.position]!; upd(i, { formCode: t.formCode, requiredFields: t.requiredFields, rules: t.rules, formReferenceLabel: `${t.title.split(' —')[0]} serial number` }); }}>Apply {tpl.templates[c.position]!.title.split(' —')[0]} template</button>}
+              </div>
               <div>Required fields{FIELDS.map((f) => <label key={f} className="block"><input type="checkbox" checked={c.requiredFields.includes(f)} onChange={() => upd(i, { requiredFields: toggle(c.requiredFields, f) })} /> {f}</label>)}</div>
               <div>Reconciliation rules{RULES.map(([r, l]) => <label key={r} className="block"><input type="checkbox" checked={c.rules.includes(r)} onChange={() => upd(i, { rules: toggle(c.rules, r) })} /> {l}</label>)}<label className="mt-1 block"><input type="checkbox" checked={c.requireEvidence} onChange={(e) => upd(i, { requireEvidence: e.target.checked })} /> Require photo of form</label></div>
             </div>

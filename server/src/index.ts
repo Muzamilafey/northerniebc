@@ -6,9 +6,12 @@ import { logger } from './lib/logger.js';
 import { closeRedis } from './realtime/redis.js';
 import { closeSocket, initSocket } from './realtime/socket.js';
 import { createApp } from './app.js';
+import { loadSettings } from './modules/settings/service.js';
 
 async function main() {
   await connectMongo();
+  await loadSettings();
+  setInterval(() => void loadSettings().catch(() => undefined), 30_000).unref();
   const app = createApp();
   const server = http.createServer(app);
   server.headersTimeout = 30_000;

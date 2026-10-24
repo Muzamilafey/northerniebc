@@ -58,12 +58,17 @@ export function SubmissionDetail() {
     comparisons: { submission: { submissionId: string; status: string; agentId: { fullName: string } }; revision: Rev | null; differences: { candidateId: string; a: number | null; b: number | null }[] }[];
     candidates: { _id: string; fullName: string; partyAbbreviation?: string }[];
     approvals: { _id: string; status: string; reason: string }[];
+    countSession: null | { clientSessionId: string; tallies: Record<string, number>; increments: number; undos: number; manualSets: number; flags: string[]; startedAt: string; lastEventAt?: string };
+    tallyEvents: { _id: string; seq: number; kind: string; candidateId: string; reasonCode?: string; reason?: string; value?: number; serverAt: string; flags: string[] }[];
+    extractions: { _id: string; status: string; formCode: string; model: string; createdAt: string; candidateVotes: { candidateId: string; votes: number | null; confidence: string }[]; warnings: string[] }[];
+    aiFormReading: boolean;
   }>(`/verification/submissions/${id}`);
+  const [aiBusy, setAiBusy] = useState(false);
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   if (d.loading) return <Loading />;
   if (!d.data) return <ErrorBox error={d.error ?? 'Not found'} />;
-  const { submission: s, revisions, decisions, stationResult, comparisons, candidates, approvals } = d.data;
+  const { submission: s, revisions, decisions, stationResult, comparisons, candidates, approvals, countSession, tallyEvents, extractions, aiFormReading } = d.data;
   const cur = revisions.find((r) => r.revision === s.currentRevision)!;
   const name = (cid: string) => candidates.find((c) => c._id === cid)?.fullName ?? cid;
   const act = async (decision: 'VERIFY' | 'REJECT' | 'START') => {
@@ -97,6 +102,23 @@ export function SubmissionDetail() {
           {cur.evidenceFileIds.length === 0 ? <p className="text-sm text-gray-600">No form photo attached.</p> : cur.evidenceFileIds.map((f) => <div key={f._id}><AuthFile fileId={f._id} name={f.originalName} mime={f.mime} /><p className="break-all text-xs text-gray-500">sha256 {f.sha256} · scan {f.scanStatus}</p></div>)}
         </section>
       </div>
+      <section className="card overflow-x-auto">
+        <h2 className="font-bold">Live count, AI form reading and submitted figures</h2>
+        {!countSession && <p className="text-sm text-gray-600">No tap-by-tap live count was recorded for this revision (for example, a correction entered from the form).</p>}
+        <table className="table mt-2">
+          <thead><tr><th>Candidate</th><th className="text-right">Submitted</th><th className="text-right">Live tap count</th><th className="text-right">AI reading of form</th></tr></thead>
+          <tbody>{cur.candidateVotes.map((c) => {
+            const live = countSession?.tallies[c.candidateId];
+            const ai = extractions[0]?.candidateVotes.find((x) => x.candidateId === c.candidateId);
+            const bad = (live != null && live !== c.votes) || (ai?.votes != null && ai.votes !== c.votes);
+            return <tr key={c.candidateId} className={bad ? 'bg-red-50' : ''}><td>{name(c.candidateId)}</td><td className="text-right tabular-nums">{fmtNumber(c.votes)}</td><td className="text-right tabular-nums">{live == null ? '—' : fmtNumber(live)}</td><td className="text-right tabular-nums">{ai ? (ai.votes == null ? 'unreadable' : `${fmtNumber(ai.votes)}${ai.confidence !== 'high' ? ` (${ai.confidence})` : ''}`) : '—'}</td></tr>;
+          })}</tbody>
+        </table>
+        {countSession && <p className="mt-2 text-xs text-gray-600">Live count: {countSession.increments} taps, {countSession.undos} undos, {countSession.manualSets} manual entries, {fmtDateTime(countSession.startedAt)} – {fmtDateTime(countSession.lastEventAt)}. {countSession.flags.length > 0 && <strong className="text-red-700">Flags: {countSession.flags.map(humanize).join(', ')}</strong>}</p>}
+        {tallyEvents.length > 0 && <ul className="mt-2 space-y-0.5 text-xs">{tallyEvents.map((e) => <li key={e._id}>#{e.seq} {fmtDateTime(e.serverAt)} — {humanize(e.kind)} {name(e.candidateId)}{e.value != null ? ` → ${e.value}` : ''}{e.reasonCode ? ` (${humanize(e.reasonCode)}${e.reason ? `: ${e.reason}` : ''})` : e.reason ? ` (${e.reason})` : ''}{e.flags.length ? ` [${e.flags.map(humanize).join(', ')}]` : ''}</li>)}</ul>}
+        {extractions[0] && <div className="mt-2 text-xs"><p>AI reading of Form {extractions[0].formCode} ({humanize(extractions[0].status)}, {extractions[0].model}, {fmtDateTime(extractions[0].createdAt)}) — advisory only.</p>{extractions[0].warnings.length > 0 && <ul className="list-disc pl-5 text-amber-900">{extractions[0].warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}</div>}
+        {aiFormReading && cur.evidenceFileIds.length > 0 && <button className="btn-outline mt-2" disabled={aiBusy} onClick={async () => { setAiBusy(true); try { await api(`/verification/submissions/${s.submissionId}/extract`, { body: { fileId: cur.evidenceFileIds[0]!._id } }); void d.reload(); } catch (x) { setMsg({ err: (x as Error).message }); } finally { setAiBusy(false); } }}>{aiBusy ? 'Reading…' : 'Run AI reading on the form photo'}</button>}
+      </section>
       {comparisons.length > 0 && (
         <section className="card overflow-x-auto">
           <h2 className="font-bold">Other submissions for this station</h2>

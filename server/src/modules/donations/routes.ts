@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
+import { setting } from '../settings/service.js';
 import { withTransaction } from '../../db/mongo.js';
 import { recordAudit, recordAuditStandalone } from '../../lib/audit.js';
 import { cached } from '../../lib/cache.js';
@@ -234,11 +235,13 @@ export function donationsPublicRouter() {
 /** Provider callbacks/webhooks. Mounted before the JSON body parser so raw bodies are available. */
 export function paymentCallbacksRouter() {
   const r = Router();
-  const allowedIps = (env.MPESA_ALLOWED_CALLBACK_IPS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const allowedIps = () => (setting('MPESA_ALLOWED_CALLBACK_IPS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 
   r.post('/mpesa/callback/:token', express.json({ limit: '32kb' }), async (req, res) => {
-    const tokenOk = Boolean(env.MPESA_CALLBACK_TOKEN) && timingSafeEqualStr(String(req.params.token), env.MPESA_CALLBACK_TOKEN!);
-    const ipOk = allowedIps.length === 0 || allowedIps.includes(req.ip ?? '');
+    const cbToken = setting('MPESA_CALLBACK_TOKEN');
+    const tokenOk = Boolean(cbToken) && timingSafeEqualStr(String(req.params.token), cbToken!);
+    const ips = allowedIps();
+    const ipOk = ips.length === 0 || ips.includes(req.ip ?? '');
     if (!tokenOk) return res.status(404).end();
     try {
       const out = await handleMpesaCallback(req.body, req.ip, ipOk ? 'PASSED' : 'FAILED');
@@ -251,7 +254,8 @@ export function paymentCallbacksRouter() {
   });
 
   r.post('/mpesa/reversal/:token/:kind', express.json({ limit: '32kb' }), async (req, res) => {
-    if (!env.MPESA_CALLBACK_TOKEN || !timingSafeEqualStr(String(req.params.token), env.MPESA_CALLBACK_TOKEN)) return res.status(404).end();
+    const cbToken = setting('MPESA_CALLBACK_TOKEN');
+    if (!cbToken || !timingSafeEqualStr(String(req.params.token), cbToken)) return res.status(404).end();
     const result = (req.body as { Result?: { ResultCode?: number | string; ResultDesc?: string; ConversationID?: string; OriginatorConversationID?: string } })?.Result;
     const conv = result?.ConversationID ?? result?.OriginatorConversationID;
     const dedupeKey = `mpesa-reversal:${conv ?? sha256(JSON.stringify(req.body ?? null))}:${result?.ResultCode ?? req.params.kind}`;

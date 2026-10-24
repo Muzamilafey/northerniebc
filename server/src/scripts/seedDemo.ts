@@ -11,6 +11,12 @@ import { seedReference } from './seedReference.js';
 
 export async function seedDemo() {
   if (env.NODE_ENV === 'production') throw new Error('Refusing to seed demo data in production');
+  if (process.env.DEMO_RESET === '1') {
+    // Development only: start from an empty database (used by the end-to-end test).
+    const mongoose = (await import('mongoose')).default;
+    await mongoose.connection.db!.dropDatabase();
+    for (const n of mongoose.modelNames()) await mongoose.model(n).syncIndexes();
+  }
   await seedReference();
   const garissa = (await County.findOne({ code: '007' }))!;
   const src = await DataSource.findOneAndUpdate(
