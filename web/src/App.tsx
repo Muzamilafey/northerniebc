@@ -24,7 +24,9 @@ const Transparency = lazy(() => import('./pages/public/Donate').then((m) => ({ d
 const DonationTerms = lazy(() => import('./pages/public/Donate').then((m) => ({ default: m.DonationTerms })));
 const Register = lazy(() => import('./pages/public/Register'));
 const RegisterConfirm = lazy(() => import('./pages/public/Register').then((m) => ({ default: m.RegisterConfirm })));
-const Aspirants = lazy(() => import('./pages/admin/Aspirants'));
+const AspirantList = lazy(() => import('./pages/admin/aspirants/AspirantList'));
+const AspirantNew = lazy(() => import('./pages/admin/aspirants/AspirantNew'));
+const Parties = lazy(() => import('./pages/admin/aspirants/Parties'));
 const CountiesAdmin = lazy(() => import('./pages/admin/CountiesAdmin'));
 const SettingsPage = lazy(() => import('./pages/admin/Settings'));
 const Search = lazy(() => import('./pages/public/Search'));
@@ -122,7 +124,9 @@ export default function App() {
           <Route path="admin/audit-log" element={<AuditLog />} />
           <Route path="admin/account" element={<Account />} />
           <Route path="admin/settings" element={<SettingsPage />} />
-          <Route path="admin/aspirants" element={<Aspirants />} />
+          <Route path="admin/aspirants" element={<AspirantList />} />
+          <Route path="admin/aspirants/new" element={<AspirantNew />} />
+          <Route path="admin/parties" element={<Parties />} />
           <Route path="admin/counties" element={<CountiesAdmin />} />
           <Route path="verify" element={<Queue />} />
           <Route path="verify/submissions/:id" element={<SubmissionDetail />} />

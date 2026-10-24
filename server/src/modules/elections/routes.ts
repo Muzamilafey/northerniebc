@@ -206,12 +206,28 @@ export function electionsAdminRouter() {
 
   // ---- Aspirant listing for administrators (includes inactive) ----
   r.get('/candidates', requirePermission('candidates.manage'), async (req, res) => {
-    const q = parse(z.object({ electionId: objectId, position: z.enum(POSITIONS).optional(), scopeRefId: objectId.optional() }).passthrough(), req.query);
+    const q = parse(
+      z.object({ electionId: objectId, position: z.enum(POSITIONS).optional(), scopeRefId: objectId.optional(), countyId: objectId.optional(), constituencyId: objectId.optional(), wardId: objectId.optional(), q: z.string().trim().max(100).optional(), status: z.enum(['active', 'removed']).optional() }).passthrough(),
+      req.query
+    );
     const filter: Record<string, unknown> = { electionId: q.electionId };
     if (q.position) filter.position = q.position;
+    if (q.status) filter.active = q.status === 'active';
+    if (q.q) filter.fullName = { $regex: q.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     if (q.scopeRefId) filter.scopeRefId = q.scopeRefId;
-    const items = await Candidate.find(filter).sort({ position: 1, scopeRefId: 1, ballotOrder: 1, fullName: 1 }).populate('partyId', 'name abbreviation logoFileId').lean();
-    res.json({ items });
+    else if (q.wardId || q.constituencyId || q.countyId) {
+      // Everyone contesting in the chosen area or any area inside it.
+      const ids: unknown[] = [];
+      if (q.wardId) ids.push(q.wardId);
+      else if (q.constituencyId) ids.push(q.constituencyId, ...(await Ward.find({ electionId: q.electionId, constituencyId: q.constituencyId }).distinct('_id')));
+      else ids.push(q.countyId, ...(await Constituency.find({ electionId: q.electionId, countyId: q.countyId }).distinct('_id')), ...(await Ward.find({ electionId: q.electionId, countyId: q.countyId }).distinct('_id')));
+      filter.scopeRefId = { $in: ids };
+    }
+    const items = await Candidate.find(filter).sort({ position: 1, scopeRefId: 1, ballotOrder: 1, fullName: 1 }).limit(1000).populate('partyId', 'name abbreviation logoFileId').lean();
+    const refIds = [...new Set(items.map((c) => c.scopeRefId).filter(Boolean).map(String))];
+    const [cs, cons, ws] = await Promise.all([County.find({ _id: { $in: refIds } }).select('name').lean(), Constituency.find({ _id: { $in: refIds } }).select('name').lean(), Ward.find({ _id: { $in: refIds } }).select('name').lean()]);
+    const names = new Map<string, string>([...cs.map((c) => [String(c._id), `${c.name} County`] as const), ...cons.map((c) => [String(c._id), `${c.name} Constituency`] as const), ...ws.map((w) => [String(w._id), `${w.name} Ward`] as const)]);
+    res.json({ items: items.map((c) => ({ ...c, areaName: c.scopeRefId ? names.get(String(c.scopeRefId)) ?? null : 'National' })) });
   });
 
   // ---- Parties ----
@@ -377,6 +393,29 @@ export function electionsAdminRouter() {
       return doc!;
     });
     res.status(201).json({ ward: w });
+  });
+
+  // One polling station at a time, for when the official register has not been imported yet.
+  r.post('/elections/:id/stations', requirePermission('geography.import'), async (req, res) => {
+    const body = parse(
+      z.object({
+        wardId: objectId,
+        code: z.string().trim().regex(/^[A-Za-z0-9-]{3,20}$/, 'Station code: 3–20 letters or digits, as printed on the IEBC register'),
+        name: z.string().trim().min(2).max(200),
+        registeredVoters: z.number().int().min(0).max(100_000).optional()
+      }),
+      req.body
+    );
+    const electionId = String(req.params.id);
+    const ward = await Ward.findOne({ _id: body.wardId, electionId }).lean();
+    if (!ward) throw badRequest('Unknown ward for this election');
+    if (await PollingStation.exists({ electionId, code: body.code })) throw conflict('A polling station with this code already exists in this election');
+    const st = await withTransaction(async (s) => {
+      const [doc] = await PollingStation.create([{ electionId, countyId: ward.countyId, constituencyId: ward.constituencyId, wardId: ward._id, code: body.code, name: body.name, registeredVoters: body.registeredVoters }], { session: s });
+      await recordAudit(s, { actor: actor(req), action: 'station.created', entityType: 'PollingStation', entityId: String(doc!._id), after: body });
+      return doc!;
+    });
+    res.status(201).json({ station: st });
   });
 
   // Codes are fixed (stations and results reference them); only a spelling can be corrected, with a reason.

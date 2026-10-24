@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react';
 import { uploadImage } from '../lib/upload';
+import { useDialog } from './Dialog';
 
 /** Add, change or remove a logo/photo. Uploads first, then hands the new file id (or null) to onSave. */
 export function LogoEditor({ fileId, purpose, label, onSave }: { fileId?: string | null; purpose: 'PARTY_LOGO' | 'COUNTY_LOGO' | 'CANDIDATE_PHOTO'; label: string; onSave: (fileId: string | null) => Promise<void> }) {
+  const dialog = useDialog();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -25,7 +27,7 @@ export function LogoEditor({ fileId, purpose, label, onSave }: { fileId?: string
           {busy ? 'Uploading…' : fileId ? 'Change logo' : 'Add logo'}
         </button>
         {fileId && (
-          <button type="button" className="link" disabled={busy} onClick={() => confirm(`Remove the ${label}?`) && void run(() => onSave(null))}>
+          <button type="button" className="link" disabled={busy} onClick={async () => { if (await dialog.confirm({ title: `Remove the ${label}?`, message: 'The image stops showing on the public pages. You can add a new one at any time.', confirmLabel: 'Remove', tone: 'danger' })) void run(() => onSave(null)); }}>
             Remove
           </button>
         )}

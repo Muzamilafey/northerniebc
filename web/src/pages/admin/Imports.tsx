@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { ErrorBox, Field, Loading, PageHeader, StatusBadge, Success } from '../../components/ui';
 import { fmtDateTime, humanize } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
+import { useDialog } from '../../components/Dialog';
 
 interface Job { _id: string; kind: string; status: string; originalName?: string; rowCount: number; validCount: number; errorCount: number; duplicateCount: number; conflictCount: number; createdAt: string; createdBy?: { fullName: string }; reviewedBy?: { fullName: string }; reviewNote?: string; sourceId?: { name: string; documentTitle?: string }; publishSummary?: { applied: number } }
 
@@ -53,6 +54,7 @@ export default function Imports() {
 }
 
 export function ImportJob() {
+  const dialog = useDialog();
   const { id } = useParams();
   const job = useApi<{ job: Job; counts: Record<string, number> }>(`/admin/imports/${id}`);
   const [status, setStatus] = useState('');
@@ -80,14 +82,14 @@ export function ImportJob() {
       {err && <ErrorBox error={err} />}
       <div className="card flex flex-wrap gap-2">
         {j.status === 'IMPORTED' && <button className="btn-primary" onClick={() => act('validate')}>Validate rows</button>}
-        {j.status === 'VALIDATED' && <button className="btn-primary" onClick={() => { const note = prompt('Review note (what you checked against the source):'); if (note) void act('review', { note }); }}>Mark reviewed</button>}
+        {j.status === 'VALIDATED' && <button className="btn-primary" onClick={async () => { const note = await dialog.prompt({ title: 'Mark this import as reviewed?', message: 'A second person confirms the validated rows match the source document before anything is published.', label: 'Review note', hint: 'What you checked against the source.', type: 'textarea', minLength: 5, maxLength: 2000, confirmLabel: 'Mark reviewed' }); if (note) void act('review', { note }); }}>Mark reviewed</button>}
         {(j.status === 'REVIEWED' || j.status === 'PUBLISHING') && (
           <>
-            <button className="btn-accent" onClick={() => confirm('Publish all VALID rows?') && act('publish', {})}>Publish valid rows</button>
-            {j.conflictCount > 0 && <button className="btn-outline" onClick={() => { const reason = prompt('Correction reason (cited from source) — conflicting rows will supersede the published records, which stay in history:'); if (reason) void act('publish', { applyConflicts: true, correctionReason: reason }); }}>Publish including {j.conflictCount} corrections</button>}
+            <button className="btn-accent" onClick={async () => { if (await dialog.confirm({ title: 'Publish all valid rows?', message: 'Valid rows become public immediately. Rows with errors or conflicts are not published.', confirmLabel: 'Publish', tone: 'accent' })) act('publish', {}); }}>Publish valid rows</button>
+            {j.conflictCount > 0 && <button className="btn-outline" onClick={async () => { const reason = await dialog.prompt({ title: `Publish including ${j.conflictCount} corrections?`, message: 'Conflicting rows will supersede the published records. The old records stay in the history.', label: 'Correction reason', hint: 'Cite the source of the correction.', type: 'textarea', minLength: 10, maxLength: 2000, confirmLabel: 'Publish with corrections', tone: 'danger' }); if (reason) void act('publish', { applyConflicts: true, correctionReason: reason }); }}>Publish including {j.conflictCount} corrections</button>}
           </>
         )}
-        {!['PUBLISHED', 'PUBLISHING', 'DISCARDED'].includes(j.status) && <button className="btn-outline" onClick={() => { const reason = prompt('Reason for discarding'); if (reason) void act('discard', { reason }); }}>Discard</button>}
+        {!['PUBLISHED', 'PUBLISHING', 'DISCARDED'].includes(j.status) && <button className="btn-outline" onClick={async () => { const reason = await dialog.prompt({ title: 'Discard this import?', message: 'Nothing from it will be published. The file and its validation stay in the audit trail.', label: 'Reason', type: 'textarea', minLength: 5, maxLength: 1000, confirmLabel: 'Discard import', tone: 'danger' }); if (reason) void act('discard', { reason }); }}>Discard</button>}
         {j.reviewNote && <p className="w-full text-sm">Review: {j.reviewNote} — {j.reviewedBy?.fullName}</p>}
       </div>
       <div className="card">

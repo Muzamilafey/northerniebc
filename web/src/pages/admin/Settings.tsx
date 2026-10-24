@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { ErrorBox, Loading, PageHeader, Success } from '../../components/ui';
 import { useApi } from '../../lib/useApi';
+import { useDialog } from '../../components/Dialog';
 
 interface FieldInfo { value?: string; set: boolean; source: 'settings' | 'environment' | 'unset'; secret: boolean; values?: string[] }
 type Settings = Record<string, Record<string, FieldInfo>>;
@@ -48,6 +49,7 @@ export default function SettingsPage() {
 }
 
 function SectionForm({ sec, fields, onSaved }: { sec: (typeof SECTIONS)[number]; fields: Record<string, FieldInfo>; onSaved: () => void }) {
+  const dialog = useDialog();
   const [values, setValues] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   const save = async (clear: string[] = []) => {
@@ -91,7 +93,7 @@ function SectionForm({ sec, fields, onSaved }: { sec: (typeof SECTIONS)[number];
             )}
             <span className="mt-0.5 block text-xs text-gray-500">
               {f.source === 'settings' ? 'Set here' : f.source === 'environment' ? 'From server .env' : 'Not set'}
-              {f.source === 'settings' && <button type="button" className="link ml-2 text-red-700" onClick={() => confirm(`Clear ${LABELS[name] ?? name}?`) && void save([name])}>Clear</button>}
+              {f.source === 'settings' && <button type="button" className="link ml-2 text-red-700" onClick={async () => { if (await dialog.confirm({ title: `Clear ${LABELS[name] ?? name}?`, message: 'The value saved here is deleted. The server falls back to its .env value, if any.', confirmLabel: 'Clear', tone: 'danger' })) void save([name]); }}>Clear</button>}
             </span>
           </label>
         ))}

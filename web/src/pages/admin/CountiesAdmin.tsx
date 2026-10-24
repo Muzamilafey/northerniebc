@@ -4,10 +4,12 @@ import { uploadImage } from '../../lib/upload';
 import { ErrorBox, Field, PageHeader, PublicImage, Success } from '../../components/ui';
 import { useApi } from '../../lib/useApi';
 import { LogoEditor } from '../../components/LogoEditor';
+import { useDialog } from '../../components/Dialog';
 
 interface County { _id: string; code: string; name: string; region?: string; logoFileId?: string }
 
 export default function CountiesAdmin() {
+  const dialog = useDialog();
   const list = useApi<{ items: County[] }>('/public/counties');
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   async function add(e: FormEvent<HTMLFormElement>) {
@@ -60,7 +62,7 @@ export default function CountiesAdmin() {
               <p className="text-xs text-gray-500">Code {c.code}{c.region ? ` · ${c.region}` : ''}</p>
               <LogoEditor fileId={c.logoFileId} purpose="COUNTY_LOGO" label={`${c.name} County logo`} onSave={(id) => setLogo(c, id)} />
               <div className="mt-1 flex gap-3 text-xs">
-                <button className="link" onClick={() => { const region = prompt('Region', c.region ?? ''); if (region !== null) void update(c, { region }); }}>Edit region</button>
+                <button className="link" onClick={async () => { const region = await dialog.prompt({ title: `Region for ${c.name} County`, label: 'Region', defaultValue: c.region ?? '', required: false, maxLength: 100, placeholder: 'e.g. North Eastern' }); if (region !== null) void update(c, { region }); }}>Edit region</button>
               </div>
             </div>
           </div>
@@ -77,6 +79,7 @@ interface LoadSummary { constituenciesAdded: number; wardsAdded: number; already
 
 /** Constituencies and wards belong to an election (boundaries can change between elections). */
 function AreasSection({ counties }: { counties: County[] }) {
+  const dialog = useDialog();
   const { data: el } = useApi<{ items: { _id: string; name: string }[] }>('/admin/elections');
   const [electionId, setElectionId] = useState('');
   const eid = electionId || el?.items[0]?._id || '';
@@ -123,11 +126,18 @@ function AreasSection({ counties }: { counties: County[] }) {
       return 'Ward added.';
     });
   };
-  const rename = (kind: 'constituencies' | 'wards', item: { _id: string; name: string }) => {
-    const name = prompt('Corrected name', item.name);
-    if (!name || name === item.name) return;
-    const reason = prompt('Reason for the correction (e.g. spelling per gazette notice):');
-    if (!reason) return;
+  const rename = async (kind: 'constituencies' | 'wards', item: { _id: string; name: string }) => {
+    const r = await dialog.form({
+      title: `Correct the name of ${item.name}`,
+      message: 'Only the spelling changes — the official code stays the same. The correction is recorded in the audit log.',
+      confirmLabel: 'Save correction',
+      fields: [
+        { name: 'name', label: 'Corrected name', defaultValue: item.name, minLength: 2, maxLength: 100 },
+        { name: 'reason', label: 'Reason', type: 'textarea', minLength: 5, maxLength: 500, placeholder: 'e.g. Spelling per Kenya Gazette notice no. …' }
+      ]
+    });
+    if (!r || r.name === item.name) return;
+    const { name, reason } = r;
     void run(async () => {
       await api(`/admin/${kind}/${item._id}`, { method: 'PATCH', body: { name, reason } });
       return 'Name corrected.';

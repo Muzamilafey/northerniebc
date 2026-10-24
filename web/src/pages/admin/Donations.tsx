@@ -3,6 +3,7 @@ import { api, download } from '../../lib/api';
 import { ErrorBox, Field, PageHeader, Pager, Stat, StatusBadge, Success } from '../../components/ui';
 import { fmtDate, fmtDateTime, fmtKes, humanize } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
+import { useDialog } from '../../components/Dialog';
 
 interface DonationRow { _id: string; reference: string; status: string; method: string; providerMode: string; amountCents: number; currency: string; confirmedAt?: string; createdAt: string; needsReconciliation: boolean; providerReceipt?: string }
 
@@ -51,6 +52,7 @@ export default function DonationsAdmin() {
 }
 
 function DonationDetail({ id, onDone }: { id: string; onDone: (m: { ok?: string; err?: string }) => void }) {
+  const dialog = useDialog();
   const d = useApi<{ donation: DonationRow & { donor: { name: string | null; email: string | null; phoneMasked: string | null; message?: string; acknowledgement: string }; statusHistory: { status: string; at: string; reason: string }[]; refundedCents: number; feeCents?: number }; transactions: { _id: string; kind: string; status: string; responseCode?: string; responseDescription?: string; createdAt: string }[]; callbacks: { _id: string; receivedAt: string; outcome?: string; authenticityCheck: string }[]; refunds: { _id: string; amountCents: number; status: string; reason: string }[] }>(`/admin/donations/${id}`);
   if (!d.data) return null;
   const x = d.data.donation;
@@ -86,7 +88,7 @@ function DonationDetail({ id, onDone }: { id: string; onDone: (m: { ok?: string;
       </div>
       <div className="flex flex-wrap gap-2">
         {x.status === 'PENDING' && <button className="btn-outline" onClick={() => run(() => api(`/admin/donations/${id}/requery`, { body: {} }))}>Re-query provider</button>}
-        {['SUCCESSFUL', 'PARTIALLY_REFUNDED'].includes(x.status) && <button className="btn-outline" onClick={() => { const amt = prompt('Refund amount'); const reason = amt ? prompt('Reason for refund') : null; if (amt && reason) void run(() => api(`/admin/donations/${id}/refunds`, { body: { amount: Number(amt), reason } })); }}>Request refund</button>}
+        {['SUCCESSFUL', 'PARTIALLY_REFUNDED'].includes(x.status) && <button className="btn-outline" onClick={async () => { const r = await dialog.form({ title: 'Request a refund', message: 'A different authorised person must approve the refund before it is sent.', confirmLabel: 'Request refund', tone: 'danger', fields: [{ name: 'amount', label: 'Refund amount', type: 'number', min: 1, step: '0.01' }, { name: 'reason', label: 'Reason', type: 'textarea', minLength: 10, maxLength: 1000 }] }); if (r) void run(() => api(`/admin/donations/${id}/refunds`, { body: { amount: Number(r.amount), reason: r.reason } })); }}>Request refund</button>}
       </div>
       {['PENDING', 'FAILED', 'EXPIRED', 'CANCELLED'].includes(x.status) && (
         <form className="grid gap-2 rounded border p-3 sm:grid-cols-2" onSubmit={reconcile}>

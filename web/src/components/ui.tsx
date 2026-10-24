@@ -27,8 +27,11 @@ export function Loading({ label = 'Loading…' }: { label?: string }) {
 
 export function ErrorBox({ error, onRetry }: { error: Error | string; onRetry?: () => void }) {
   return (
-    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-      <p>{typeof error === 'string' ? error : error.message}</p>
+    <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+      <p className="flex items-start gap-2">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true"><path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" /></svg>
+        <span>{typeof error === 'string' ? error : error.message}</span>
+      </p>
       {onRetry && (
         <button className="btn-outline mt-2" onClick={onRetry}>
           Try again
@@ -38,17 +41,44 @@ export function ErrorBox({ error, onRetry }: { error: Error | string; onRetry?: 
   );
 }
 
-export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center">
+    <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center">
+      <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-6 w-6"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.63 10.63a2.25 2.25 0 0 1-2.24 2.12H6.62a2.25 2.25 0 0 1-2.24-2.12L3.75 7.5M10 11.25h4M3.38 7.5h17.25c.62 0 1.12-.5 1.12-1.12v-1.5c0-.63-.5-1.13-1.12-1.13H3.38c-.63 0-1.13.5-1.13 1.13v1.5c0 .62.5 1.12 1.13 1.12Z" /></svg>
+      </span>
       <p className="font-semibold text-gray-800">{title}</p>
-      {children && <div className="mt-1 text-sm text-gray-600">{children}</div>}
+      {children && <div className="mx-auto mt-1 max-w-md text-sm text-gray-600">{children}</div>}
+      {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }
 
+/** A titled card: header with optional description and actions, then content. */
+export function Panel({ title, description, actions, children, className = '', flush = false }: { title?: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; flush?: boolean }) {
+  return (
+    <section className={`card ${className}`}>
+      {(title || actions) && (
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            {title && <h2 className="text-base font-bold text-navy-900">{title}</h2>}
+            {description && <p className="mt-0.5 text-sm text-gray-600">{description}</p>}
+          </div>
+          {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+        </div>
+      )}
+      {flush ? <div className="table-wrap">{children}</div> : children}
+    </section>
+  );
+}
+
 export function Success({ children }: { children: ReactNode }) {
-  return <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{children}</div>;
+  return (
+    <div role="status" className="flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+      <svg viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true"><path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.86-9.81a.75.75 0 0 0-1.22-.88l-3.24 4.53-1.62-1.62a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.1l3.75-5.24Z" clipRule="evenodd" /></svg>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
 }
 
 /** Honest placeholder when verified data has not been published. */
@@ -126,21 +156,22 @@ export function SourceRef({ source, page, className = '' }: { source?: SourceInf
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="text-2xl font-bold text-navy-900 sm:text-3xl">{title}</h1>
-        {subtitle && <p className="mt-1 max-w-3xl text-gray-600">{subtitle}</p>}
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold tracking-tight text-navy-900 sm:text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1.5 max-w-3xl text-sm text-gray-600 sm:text-base">{subtitle}</p>}
       </div>
-      {actions}
+      {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
     </div>
   );
 }
 
 export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
   return (
-    <div className="card">
-      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-navy-900">{value}</p>
+    <div className="card relative overflow-hidden">
+      <span className="absolute inset-y-0 left-0 w-1 bg-brand-500/70" aria-hidden="true" />
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="mt-1.5 text-3xl font-bold tabular-nums text-navy-900">{value}</p>
       {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
     </div>
   );
@@ -194,4 +225,24 @@ export function PublicImage({ fileId, alt, size = 40, rounded = 'rounded-md', fa
     );
   }
   return <img src={`/api/files/${fileId}`} alt={alt} width={size} height={size} loading="lazy" onError={() => setFailed(fileId)} className={`shrink-0 object-contain ${rounded}`} style={{ width: size, height: size }} />;
+}
+
+/** Pill-style single choice (filters, record types). */
+export function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode; count?: number }[]; label: string }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex max-w-full flex-wrap gap-1 rounded-xl bg-gray-100 p-1">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${value === o.value ? 'bg-white text-navy-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+        >
+          {o.label}
+          {o.count != null && <span className="ml-1.5 rounded-full bg-gray-200 px-1.5 text-xs text-gray-700">{o.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
 }

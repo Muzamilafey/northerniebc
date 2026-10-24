@@ -7,6 +7,7 @@ import { allDrafts, getDraft, onSync, onTally, saveChange, saveDraft, sendTallie
 import { ErrorBox, Loading, Logo, PublicImage, StatusBadge, Success } from '../../components/ui';
 import { fmtDateTime, fmtNumber, humanize, POSITION_LABELS } from '../../lib/format';
 import { getMeta, setMeta } from '../../lib/offline';
+import { Modal, ModalActions } from '../../components/Dialog';
 
 interface Ballot {
   position: string;
@@ -359,32 +360,32 @@ function UndoDialog({ candidate, onCancel, onConfirm }: { candidate: string; onC
   const [code, setCode] = useState<UndoReason>('ACCIDENTAL_TAP');
   const [reason, setReason] = useState('');
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="undo-title" className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-3 sm:items-center">
-      <div className="card w-full max-w-md space-y-3">
-        <h2 id="undo-title" className="font-bold">Undo the last +1 for {candidate}?</h2>
-        <p className="text-xs text-gray-600">Undos are recorded with your reason and shown to reviewers.</p>
-        <fieldset className="space-y-1">
+    <Modal title={`Undo the last +1 for ${candidate}?`} description="Undos are recorded with your reason and shown to reviewers." tone="danger" onClose={onCancel}>
+      <form onSubmit={(e) => { e.preventDefault(); onConfirm(code, reason); }}>
+        <fieldset className="space-y-2">
           <legend className="label">Reason</legend>
-          {UNDO_REASONS.map(([v, l]) => <label key={v} className="flex items-center gap-2 text-sm"><input type="radio" name="undo" checked={code === v} onChange={() => setCode(v)} /> {l}</label>)}
+          {UNDO_REASONS.map(([v, l]) => (
+            <label key={v} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm ${code === v ? 'border-navy-600 bg-navy-50' : 'border-gray-200'}`}>
+              <input type="radio" name="undo" checked={code === v} onChange={() => setCode(v)} /> {l}
+            </label>
+          ))}
         </fieldset>
-        {code === 'OTHER' && <textarea className="input" placeholder="Explain" value={reason} onChange={(e) => setReason(e.target.value)} />}
-        <div className="flex gap-2"><button className="btn-outline flex-1" onClick={onCancel}>Cancel</button><button className="btn-primary flex-1" onClick={() => onConfirm(code, reason)}>Undo</button></div>
-      </div>
-    </div>
+        {code === 'OTHER' && <textarea className="input mt-3" placeholder="Explain what happened" aria-label="Explain" value={reason} onChange={(e) => setReason(e.target.value)} required minLength={3} />}
+        <ModalActions onCancel={onCancel} confirmLabel="Undo +1" tone="danger" />
+      </form>
+    </Modal>
   );
 }
 
 function PasswordDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (password: string) => void }) {
   const [pw, setPw] = useState('');
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="pw-title" className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-3 sm:items-center">
-      <form className="card w-full max-w-md space-y-3" onSubmit={(e) => { e.preventDefault(); onConfirm(pw); }}>
-        <h2 id="pw-title" className="font-bold">Confirm it is you</h2>
-        <p className="text-sm text-gray-600">Enter your password to submit this result. This stops anyone else from submitting from your phone.</p>
+    <Modal title="Confirm it is you" description="Enter your password to submit this result. This stops anyone else from submitting from your phone." tone="accent" onClose={onCancel}>
+      <form onSubmit={(e) => { e.preventDefault(); onConfirm(pw); }}>
         <input type="password" className="input" autoComplete="current-password" aria-label="Password" value={pw} onChange={(e) => setPw(e.target.value)} required autoFocus />
-        <div className="flex gap-2"><button type="button" className="btn-outline flex-1" onClick={onCancel}>Cancel</button><button className="btn-accent flex-1">Confirm &amp; submit</button></div>
+        <ModalActions onCancel={onCancel} confirmLabel="Confirm & submit" tone="accent" />
       </form>
-    </div>
+    </Modal>
   );
 }
 

@@ -137,7 +137,7 @@ await step('an unapproved agent cannot count until a different administrator app
   await admin.getByLabel('Accreditation reference').fill('DEMO-ACC-2');
   await admin.getByLabel('Note (what you checked)').fill('Checked ID and letter in person');
   await admin.getByRole('button', { name: 'Approve agent' }).click();
-  await admin.getByRole('cell', { name: 'APPROVED' }).first().waitFor();
+  await admin.getByRole('cell', { name: 'Approved', exact: true }).first().waitFor();
   await admin.screenshot({ path: `${SHOTS}/06a-agent-approval.png`, fullPage: true });
   await p.reload();
   await p.getByText('DEMO-PS').first().waitFor({ timeout: 5000 }).catch(() => undefined);

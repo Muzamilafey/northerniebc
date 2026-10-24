@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { api } from '../../lib/api';
-import { ErrorBox, Field, PageHeader, StatusBadge, Success } from '../../components/ui';
+import { Empty, ErrorBox, Field, PageHeader, Success } from '../../components/ui';
+import { Icon } from '../../components/icons';
 import { fmtDate, POSITION_LABELS, POSITIONS } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
+import { Modal, ModalActions, useDialog } from '../../components/Dialog';
 
 const FIELDS = ['registeredVoters', 'totalVotesCast', 'rejectedVotes', 'rejectedObjectedTo', 'disputedVotes', 'validVotes'];
 const RULES: [string, string][] = [
@@ -17,6 +19,7 @@ interface Election { _id: string; name: string; slug: string; type: string; elec
 const NEXT: Record<string, string[]> = { DRAFT: ['ACTIVE'], ACTIVE: ['CLOSED'], CLOSED: ['ACTIVE', 'ARCHIVED'], ARCHIVED: [] };
 
 export default function Elections() {
+  const dialog = useDialog();
   const list = useApi<{ items: Election[] }>('/admin/elections');
   const [err, setErr] = useState<string>();
   const [ok, setOk] = useState<string>();
@@ -28,7 +31,10 @@ export default function Elections() {
     setErr(undefined);
     try {
       await api('/admin/elections', { body: { name: f.get('name'), slug: f.get('slug'), type: f.get('type'), electionDate: f.get('electionDate'), positions: [] } });
-      setOk('Election created as DRAFT. Configure positions and rules from the official documentation, then import the register.');
+      setOk('Election created as a draft. Configure its positions next.');
+      setCreating(false);
+      setDraft({ name: '', slug: '' });
+      setSlugTouched(false);
       void list.reload();
     } catch (x) {
       setErr((x as Error).message);
@@ -44,47 +50,92 @@ export default function Elections() {
       setErr((x as Error).message);
     }
   }
+  const [creating, setCreating] = useState(false);
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [draft, setDraft] = useState({ name: '', slug: '' });
+  const humanStatus = (st: string) => st.charAt(0) + st.slice(1).toLowerCase();
+  const statusCls: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', ACTIVE: 'bg-green-100 text-green-800', CLOSED: 'bg-amber-100 text-amber-900', ARCHIVED: 'bg-gray-200 text-gray-600' };
+  const move = async (e: Election, st: string) => {
+    if (await dialog.confirm({ title: `Move “${e.name}” to ${humanStatus(st)}?`, message: st === 'ACTIVE' ? 'Agents can start counting and submitting results.' : st === 'CLOSED' ? 'No further submissions will be accepted.' : 'The election is archived for the record.', confirmLabel: `Move to ${humanStatus(st)}`, tone: st === 'CLOSED' || st === 'ARCHIVED' ? 'danger' : 'primary' })) void patch(e._id, { status: st });
+  };
   return (
     <div className="space-y-6">
-      <PageHeader title="Election setup" subtitle="Configure elections, positions and reconciliation rules from authoritative election documentation. Register and candidates are loaded through Data imports." />
+      <PageHeader
+        title="Election setup"
+        subtitle="Elections, contested positions and reconciliation rules — set from the official election documentation."
+        actions={<button className="btn-accent" onClick={() => { setErr(undefined); setCreating(true); }}><Icon name="plus" className="h-4 w-4" /> New election</button>}
+      />
       {ok && <Success>{ok}</Success>}
-      {err && <ErrorBox error={err} />}
-      <form className="card grid gap-3 sm:grid-cols-5" onSubmit={create}>
-        <Field label="Name"><input name="name" className="input" required /></Field>
-        <Field label="Slug"><input name="slug" className="input" pattern="[a-z0-9-]{3,80}" required /></Field>
-        <Field label="Type"><select name="type" className="input"><option value="GENERAL">General election</option><option value="BY_ELECTION">By-election</option></select></Field>
-        <Field label="Election date"><input name="electionDate" type="date" className="input" required /></Field>
-        <div className="flex items-end"><button className="btn-primary">Create</button></div>
-      </form>
-      {list.data?.items.map((e) => (
-        <section key={e._id} className="card">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div><p className="font-bold">{e.name}</p><p className="text-xs text-gray-500">{e.type} · {fmtDate(e.electionDate)} · ID {e._id}</p></div>
-            <div className="flex items-center gap-2"><StatusBadge status={e.status} />{NEXT[e.status]!.map((s) => <button key={s} className="btn-outline px-2 py-1 text-xs" onClick={() => confirm(`Move to ${s}?`) && patch(e._id, { status: s })}>→ {s}</button>)}</div>
-          </div>
-          <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={e.publishProvisional} onChange={(x) => patch(e._id, { publishProvisional: x.target.checked })} /> Publish provisional (unverified) agent results to the public, clearly labelled</label>
-          <p className="mt-2 text-sm">Positions: {e.positions.filter((p) => p.enabled).map((p) => POSITION_LABELS[p.position]).join(', ') || 'none configured'} <button className="link ml-2" onClick={() => setEditing(e)}>Configure positions</button></p>
-          {editing?._id === e._id && <PositionEditor election={e} onSave={(positions) => { void patch(e._id, { positions }); setEditing(null); }} />}
-        </section>
-      ))}
+      {err && !creating && <ErrorBox error={err} />}
+      {list.data?.items.length === 0 && <Empty title="No elections yet" action={<button className="btn-accent" onClick={() => setCreating(true)}><Icon name="plus" className="h-4 w-4" /> Create the first election</button>}>Create an election, then enable its positions and load the register.</Empty>}
+
+      <div className="space-y-4">
+        {list.data?.items.map((e) => {
+          const enabled = e.positions.filter((p) => p.enabled);
+          return (
+            <section key={e._id} className="card">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-bold text-navy-900">{e.name}</h2>
+                    <span className={`badge ${statusCls[e.status] ?? 'bg-gray-100 text-gray-700'}`}>{humanStatus(e.status)}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-600">{e.type === 'BY_ELECTION' ? 'By-election' : 'General election'} · {fmtDate(e.electionDate)}</p>
+                  <p className="mt-0.5 text-xs text-gray-400">ID {e._id}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className="btn-outline btn-sm" onClick={() => setEditing(e)}>Configure positions</button>
+                  {NEXT[e.status]!.map((st) => <button key={st} className={st === 'ACTIVE' ? 'btn-accent btn-sm' : 'btn-outline btn-sm'} onClick={() => void move(e, st)}>{st === 'ACTIVE' ? (e.status === 'DRAFT' ? 'Activate' : 'Reopen') : st === 'CLOSED' ? 'Close voting' : 'Archive'}</button>)}
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {enabled.length ? enabled.map((p) => <span key={p.position} className="badge bg-navy-50 text-navy-800">{POSITION_LABELS[p.position]}{p.formCode ? ` · Form ${p.formCode}` : ''}</span>) : <span className="text-sm text-amber-800">No positions enabled yet — configure them before activating.</span>}
+              </div>
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={e.publishProvisional} onChange={(x) => void patch(e._id, { publishProvisional: x.target.checked })} />
+                <span><span className="font-semibold">Publish provisional results</span><span className="block text-gray-600">Show unverified agent results to the public, clearly labelled as provisional.</span></span>
+              </label>
+            </section>
+          );
+        })}
+      </div>
+
+      {creating && (
+        <Modal title="New election" description="It starts as a draft. Enable positions and load the register before activating it." icon={false} onClose={() => setCreating(false)}>
+          <form className="space-y-4" onSubmit={async (ev) => { await create(ev); }}>
+            <Field label="Name"><input name="name" className="input" required autoFocus value={draft.name} onChange={(ev) => { const name = ev.target.value; setDraft({ name, slug: slugTouched ? draft.slug : name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) }); }} placeholder="e.g. General Election 2027" /></Field>
+            <Field label="Web address (slug)" hint="Lowercase letters, numbers and dashes."><input name="slug" className="input" pattern="[a-z0-9-]{3,80}" required value={draft.slug} onChange={(ev) => { setSlugTouched(true); setDraft({ ...draft, slug: ev.target.value }); }} /></Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Type"><select name="type" className="input"><option value="GENERAL">General election</option><option value="BY_ELECTION">By-election</option></select></Field>
+              <Field label="Election date"><input name="electionDate" type="date" className="input" required /></Field>
+            </div>
+            {err && <ErrorBox error={err} />}
+            <ModalActions onCancel={() => setCreating(false)} confirmLabel="Create election" tone="accent" />
+          </form>
+        </Modal>
+      )}
+      {editing && (
+        <Modal title={`Positions — ${editing.name}`} description="Enable each contested position and the checks its official form requires." icon={false} size="lg" onClose={() => setEditing(null)}>
+          <PositionEditor election={editing} onCancel={() => setEditing(null)} onSave={(positions) => { void patch(editing._id, { positions }); setEditing(null); }} />
+        </Modal>
+      )}
     </div>
   );
 }
 
-function PositionEditor({ election, onSave }: { election: Election; onSave: (p: PositionCfg[]) => void }) {
+function PositionEditor({ election, onSave, onCancel }: { election: Election; onSave: (p: PositionCfg[]) => void; onCancel: () => void }) {
   const { data: tpl } = useApi<{ templates: Record<string, { formCode: string; title: string; requiredFields: string[]; rules: string[] }>; note: string }>('/admin/form-templates');
   const [cfg, setCfg] = useState<PositionCfg[]>(() => POSITIONS.map((p) => election.positions.find((x) => x.position === p) ?? { position: p, enabled: false, formReferenceLabel: 'Official results form reference', requiredFields: [], rules: ['CANDIDATE_SUM_EQUALS_VALID'], requireEvidence: true }));
   const upd = (i: number, v: Partial<PositionCfg>) => setCfg(cfg.map((c, j) => (j === i ? { ...c, ...v } : c)));
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
   return (
-    <div className="mt-3 space-y-3 rounded-lg border p-3">
-      {tpl && <p className="text-xs text-gray-600">{tpl.note}</p>}
-      <p className="text-xs text-amber-900">Apply only the rules and fields that the official forms for this election require. Rules flag discrepancies for reviewers; figures are never adjusted.</p>
+    <div className="space-y-3">
+      <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">Apply only the rules and fields the official forms for this election require. Rules flag discrepancies for reviewers; figures are never adjusted.{tpl ? ` ${tpl.note}` : ''}</p>
       {cfg.map((c, i) => (
-        <div key={c.position} className="border-b pb-2">
-          <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={c.enabled} onChange={(e) => upd(i, { enabled: e.target.checked })} /> {POSITION_LABELS[c.position]}</label>
+        <div key={c.position} className={`rounded-xl border p-3 transition ${c.enabled ? 'border-navy-600/40 bg-navy-50/30' : 'border-gray-200'}`}>
+          <label className="flex cursor-pointer items-center gap-3 font-semibold"><input type="checkbox" checked={c.enabled} onChange={(e) => upd(i, { enabled: e.target.checked })} /> {POSITION_LABELS[c.position]}</label>
           {c.enabled && (
-            <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+            <div className="mt-3 grid gap-4 text-xs sm:grid-cols-3">
               <div className="space-y-1">
                 <label>Official form code<input className="input" value={c.formCode ?? ''} placeholder={tpl?.templates[c.position]?.formCode} onChange={(e) => upd(i, { formCode: e.target.value.toUpperCase() || undefined })} /></label>
                 <label>Form reference label<input className="input" value={c.formReferenceLabel} onChange={(e) => upd(i, { formReferenceLabel: e.target.value })} /></label>
@@ -96,7 +147,10 @@ function PositionEditor({ election, onSave }: { election: Election; onSave: (p: 
           )}
         </div>
       ))}
-      <button className="btn-primary" onClick={() => onSave(cfg.filter((c) => c.enabled))}>Save positions</button>
+      <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+        <button className="btn-outline" onClick={onCancel}>Cancel</button>
+        <button className="btn-accent" onClick={() => onSave(cfg.filter((c) => c.enabled))}>Save positions</button>
+      </div>
     </div>
   );
 }

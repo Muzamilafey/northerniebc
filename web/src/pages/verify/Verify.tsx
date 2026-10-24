@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { AuthFile } from '../../components/AuthFile';
-import { Empty, ErrorBox, Loading, PageHeader, Pager, StatusBadge, Success } from '../../components/ui';
+import { Empty, ErrorBox, Loading, PageHeader, Pager, Segmented, StatusBadge, Success } from '../../components/ui';
 import { fmtDateTime, fmtNumber, humanize, POSITION_LABELS } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
+import { useDialog } from '../../components/Dialog';
 
 interface SubRow { submissionId: string; position: string; status: string; currentRevision: number; hasConflict: boolean; flags: string[]; lastServerReceivedAt: string; pollingStationId: { code: string; name: string }; agentId: { fullName: string; agentCode: string } }
 
@@ -19,16 +20,20 @@ export default function Queue() {
   return (
     <div className="space-y-4">
       <PageHeader title="Verification queue" subtitle="Compare each submission with its form photo. Conflicts are listed first." />
-      <div className="card flex flex-wrap gap-2">
-        <select className="input max-w-xs" value={electionId} onChange={(e) => set('electionId', e.target.value)}>{el?.items.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}</select>
-        {['SUBMITTED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED'].map((s) => <button key={s} className={status === s ? 'btn-primary' : 'btn-outline'} onClick={() => set('status', s)}>{humanize(s)}</button>)}
-        <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={params.get('conflict') === 'true'} onChange={(e) => set('conflict', e.target.checked ? 'true' : '')} /> Conflicts only</label>
-        <select className="input max-w-xs" value={params.get('position') ?? ''} onChange={(e) => set('position', e.target.value)}><option value="">All positions</option>{Object.entries(POSITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+      <div className="card space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <select className="input" aria-label="Election" value={electionId} onChange={(e) => set('electionId', e.target.value)}>{el?.items.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}</select>
+          <select className="input" aria-label="Position" value={params.get('position') ?? ''} onChange={(e) => set('position', e.target.value)}><option value="">All positions</option>{Object.entries(POSITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Segmented label="Status" value={status} onChange={(v) => set('status', v)} options={['SUBMITTED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED'].map((s) => ({ value: s, label: humanize(s) }))} />
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={params.get('conflict') === 'true'} onChange={(e) => set('conflict', e.target.checked ? 'true' : '')} /> Conflicts only</label>
+        </div>
       </div>
-      {list.loading && <Loading />}
+      {list.loading && !list.data && <Loading />}
       {list.error && <ErrorBox error={list.error} />}
-      {list.data?.items.length === 0 && <Empty title="Nothing in this queue" />}
-      <div className="card overflow-x-auto">
+      {list.data?.items.length === 0 && <Empty title="Nothing in this queue">New submissions appear here as agents send them.</Empty>}
+      {!!list.data?.items.length && <div className="card"><div className="table-wrap">
         <table className="table">
           <thead><tr><th>Station</th><th>Position</th><th>Agent</th><th>Rev.</th><th>Flags</th><th>Received</th><th /></tr></thead>
           <tbody>{list.data?.items.map((s) => (
@@ -36,12 +41,13 @@ export default function Queue() {
               <td>{s.pollingStationId.code} {s.pollingStationId.name}</td><td>{POSITION_LABELS[s.position]}</td><td className="text-xs">{s.agentId.fullName}<br />{s.agentId.agentCode}</td><td>{s.currentRevision}</td>
               <td className="text-xs">{s.hasConflict && <span className="font-semibold text-red-700">CONFLICT </span>}{s.flags.map(humanize).join(', ')}</td>
               <td className="text-xs">{fmtDateTime(s.lastServerReceivedAt)}</td>
-              <td><Link className="link" to={`/verify/submissions/${s.submissionId}`}>Review</Link></td>
+              <td className="text-right"><Link className="btn-outline btn-sm" to={`/verify/submissions/${s.submissionId}`}>Review</Link></td>
             </tr>
           ))}</tbody>
         </table>
-        {list.data && <Pager page={page} total={list.data.total} limit={list.data.limit} onPage={(n) => { const p = new URLSearchParams(params); p.set('page', String(n)); setParams(p); }} />}
-      </div>
+        </div>
+        <Pager page={page} total={list.data.total} limit={list.data.limit} onPage={(n) => { const p = new URLSearchParams(params); p.set('page', String(n)); setParams(p); }} />
+      </div>}
     </div>
   );
 }
@@ -155,10 +161,11 @@ export function SubmissionDetail() {
 }
 
 export function Approvals() {
+  const dialog = useDialog();
   const list = useApi<{ items: { _id: string; kind: string; entityId: string; reason: string; payload: Record<string, unknown>; createdAt: string; requestedBy: { fullName: string } }[] }>('/approvals');
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   const decide = async (id: string, decision: 'approve' | 'reject') => {
-    const note = prompt(`Note for ${decision}:`);
+    const note = await dialog.prompt({ title: decision === 'approve' ? 'Approve this request?' : 'Reject this request?', message: decision === 'approve' ? 'The change is applied as soon as you approve.' : 'Nothing changes; the requester sees your note.', label: 'Note', type: 'textarea', minLength: 3, maxLength: 2000, confirmLabel: decision === 'approve' ? 'Approve' : 'Reject', tone: decision === 'approve' ? 'accent' : 'danger' });
     if (!note) return;
     try {
       const r = await api<{ status: string; message?: string }>(`/approvals/${id}/${decision}`, { body: { note } });
@@ -189,13 +196,23 @@ export function Approvals() {
 }
 
 export function CitizenModeration() {
+  const dialog = useDialog();
   const [status, setStatus] = useState('RECEIVED');
   const list = useApi<{ items: { _id: string; reference: string; type: string; title: string; description: string; status: string; createdAt: string; duplicateOfId?: string; abuseReports: unknown[]; fileIds: string[]; moderationNotes: { note: string }[] }[] }>('/admin/citizen-reports', { status });
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   const moderate = async (id: string, st: string) => {
-    const note = prompt('Moderation note (internal):');
-    if (!note) return;
-    const publicSummary = st === 'PUBLISHED' ? prompt('Public summary — no personal data, no unproven accusations:') ?? undefined : undefined;
+    const r = await dialog.form({
+      title: st === 'PUBLISHED' ? 'Publish this citizen report?' : `Mark this report as ${st.toLowerCase().replace(/_/g, ' ')}?`,
+      confirmLabel: st === 'PUBLISHED' ? 'Publish' : 'Save',
+      tone: st === 'REJECTED' ? 'danger' : st === 'PUBLISHED' ? 'accent' : 'primary',
+      fields: [
+        { name: 'note', label: 'Moderation note (internal)', type: 'textarea', minLength: 3, maxLength: 2000 },
+        ...(st === 'PUBLISHED' ? [{ name: 'publicSummary', label: 'Public summary', type: 'textarea' as const, minLength: 10, maxLength: 2000, hint: 'Shown publicly. No personal data and no unproven accusations.' }] : [])
+      ]
+    });
+    if (!r) return;
+    const { note } = r;
+    const publicSummary = r.publicSummary || undefined;
     try {
       await api(`/admin/citizen-reports/${id}/moderate`, { body: { status: st, note, publicSummary } });
       setMsg({ ok: 'Saved' });
@@ -207,17 +224,17 @@ export function CitizenModeration() {
   return (
     <div className="space-y-4">
       <PageHeader title="Citizen reports" subtitle="Reports stay unverified and private until reviewed. Reporter identity is revealed only on an audited request." />
-      <div className="card flex flex-wrap gap-2">{['RECEIVED', 'UNDER_REVIEW', 'PUBLISHED', 'RESOLVED', 'REJECTED', 'DUPLICATE'].map((s) => <button key={s} className={s === status ? 'btn-primary' : 'btn-outline'} onClick={() => setStatus(s)}>{humanize(s)}</button>)}</div>
+      <div><Segmented label="Status" value={status} onChange={setStatus} options={['RECEIVED', 'UNDER_REVIEW', 'PUBLISHED', 'RESOLVED', 'REJECTED', 'DUPLICATE'].map((s) => ({ value: s, label: humanize(s) }))} /></div>
       {msg.ok && <Success>{msg.ok}</Success>}
       {msg.err && <ErrorBox error={msg.err} />}
-      {list.data?.items.length === 0 && <Empty title="No reports" />}
+      {list.data?.items.length === 0 && <Empty title="No reports here">Reports with this status will appear here.</Empty>}
       {list.data?.items.map((r) => (
         <article key={r._id} className="card">
           <p className="text-xs text-gray-500">{r.reference} · {humanize(r.type)} · {fmtDateTime(r.createdAt)} {r.duplicateOfId && <span className="text-amber-800">· possible duplicate</span>} {r.abuseReports.length > 0 && <span className="text-red-700">· {r.abuseReports.length} abuse report(s)</span>}</p>
           <p className="font-semibold">{r.title}</p>
           <p className="whitespace-pre-line text-sm">{r.description}</p>
           {r.fileIds.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{r.fileIds.map((f) => <AuthFile key={f} fileId={f} />)}</div>}
-          <div className="mt-2 flex flex-wrap gap-2 text-sm">{['UNDER_REVIEW', 'PUBLISHED', 'RESOLVED', 'REJECTED'].map((s) => <button key={s} className="btn-outline px-2 py-1" onClick={() => moderate(r._id, s)}>{humanize(s)}</button>)}</div>
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">{['UNDER_REVIEW', 'PUBLISHED', 'RESOLVED', 'REJECTED'].map((s) => <button key={s} className={s === 'PUBLISHED' ? 'btn-accent btn-sm' : s === 'REJECTED' ? 'btn-outline btn-sm text-red-700' : 'btn-outline btn-sm'} onClick={() => moderate(r._id, s)}>{s === 'UNDER_REVIEW' ? 'Start review' : s === 'PUBLISHED' ? 'Publish' : s === 'RESOLVED' ? 'Mark resolved' : 'Reject'}</button>)}</div>
         </article>
       ))}
     </div>
