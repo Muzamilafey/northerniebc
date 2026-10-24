@@ -63,7 +63,7 @@ await step('public home shows brand, independence notice and county cards', asyn
   await p.goto(BASE);
   await p.getByRole('heading', { name: 'Follow the Vote. Follow the Money.' }).waitFor();
   assert.ok(await p.getByText('not affiliated with or endorsed by').first().isVisible());
-  for (const c of ['Garissa', 'Mandera', 'Wajir', 'Isiolo', 'Marsabit']) assert.ok(await p.getByText(c, { exact: true }).first().isVisible(), c);
+  for (const c of ['Garissa', 'Mandera', 'Wajir', 'Isiolo', 'Marsabit']) await p.getByText(c, { exact: true }).first().waitFor({ timeout: 10000 });
   await p.screenshot({ path: `${SHOTS}/01-home-mobile.png`, fullPage: true });
 });
 
