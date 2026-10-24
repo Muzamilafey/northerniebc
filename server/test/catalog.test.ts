@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, seedElection, setupDb, teardownDb } from './helpers.js';
 import { Candidate, Ward } from '../src/models/index.js';
 import { env } from '../src/config/env.js';
+import { parsePastedList } from '../src/modules/parties/registry.js';
 
 let app: Express;
 let fx: Awaited<ReturnType<typeof seedElection>>;
@@ -44,6 +45,9 @@ describe('counties', () => {
     const garissa = pub.body.items.find((x: { name: string }) => x.name === 'Garissa');
     const logo2 = await uploadImage(sa.auth, 'COUNTY_LOGO');
     expect((await request(app).patch(`/api/admin/counties/${garissa._id}`).set(sa.auth).send({ logoFileId: logo2.body.fileId })).status).toBe(200);
+    // ...and removed again.
+    expect((await request(app).patch(`/api/admin/counties/${garissa._id}`).set(sa.auth).send({ logoFileId: null })).status).toBe(200);
+    expect((await request(app).get('/api/public/counties')).body.items.find((x: { name: string }) => x.name === 'Garissa').logoFileId ?? null).toBeNull();
   });
 
   it('rejects SVG and non-image logos', async () => {
@@ -159,5 +163,53 @@ describe('upload and area safeguards', () => {
     const r = await request(app).post(`/api/admin/elections/${String(fx.election._id)}/areas/load-official`).set(sa.auth);
     expect(r.status).toBe(200);
     expect(r.body.conflicts.join(' ')).toContain('"MARSABIT COUNTY" (code 098) looks like a duplicate of Marsabit 010');
+  });
+});
+
+describe('loading registered parties', () => {
+  it('parses common pasted formats', () => {
+    expect(parsePastedList('1. Orange Democratic Movement (ODM)\n2 United Democratic Alliance, UDA\nJubilee Party - JP\nKenya African National Union\tKANU\n\nNo Abbreviation Party')).toEqual([
+      { name: 'Orange Democratic Movement', abbreviation: 'ODM' },
+      { name: 'United Democratic Alliance', abbreviation: 'UDA' },
+      { name: 'Jubilee Party', abbreviation: 'JP' },
+      { name: 'Kenya African National Union', abbreviation: 'KANU' },
+      { name: 'No Abbreviation Party', abbreviation: null }
+    ]);
+  });
+
+  it('previews a pasted list, imports only new valid rows, and never changes existing parties', async () => {
+    const admin = await as(app, 'REGIONAL_ADMIN');
+    const text = 'Demo Unity Alliance (DUP)\nSample Progressive Party (SPP)\nSample Twin Party (STP)\nSample Twin Again (STP)\nNo Abbreviation Party';
+    const prev = await request(app).post('/api/admin/parties/read').set(admin.auth).send({ text });
+    expect(prev.status).toBe(200);
+    const byName = Object.fromEntries(prev.body.rows.map((r: { name: string }) => [r.name, r]));
+    expect(byName['Demo Unity Alliance'].status).toBe('EXISTS');
+    expect(byName['Sample Progressive Party']).toMatchObject({ status: 'NEW', abbreviation: 'SPP' });
+    expect(byName['Sample Twin Party'].problem).toContain('repeated');
+    expect(byName['No Abbreviation Party'].problem).toContain('No abbreviation');
+
+    const imp = await request(app).post('/api/admin/parties/import').set(admin.auth).send({
+      rows: prev.body.rows.filter((r: { abbreviation: string | null }) => r.abbreviation).map((r: { name: string; abbreviation: string }) => ({ name: r.name, abbreviation: r.abbreviation })),
+      source: { url: 'https://orpp.or.ke/list-of-political-parties/', asAt: 'test' }
+    });
+    expect(imp.status).toBe(200);
+    expect(imp.body.created).toBe(1);
+    expect(imp.body.alreadyPresent).toBe(1);
+    expect(imp.body.skipped).toHaveLength(2);
+    const parties = await request(app).get('/api/public/parties');
+    expect(parties.body.items.find((p: { abbreviation: string }) => p.abbreviation === 'SPP').name).toBe('Sample Progressive Party');
+  });
+
+  it('fetches only from orpp.or.ke and needs the AI reader for PDFs', async () => {
+    const admin = await as(app, 'REGIONAL_ADMIN');
+    for (const url of ['https://example.com/list.pdf', 'http://orpp.or.ke/x.pdf', 'https://orpp.or.ke.evil.test/x.pdf', 'file:///etc/passwd']) {
+      expect((await request(app).post('/api/admin/parties/read').set(admin.auth).send({ url })).status).toBe(400);
+    }
+    if (!env.ANTHROPIC_API_KEY) {
+      const pdf = await request(app).post('/api/admin/parties/read').set(admin.auth).attach('file', Buffer.from('%PDF-1.4\n%test'), { filename: 'list.pdf', contentType: 'application/pdf' });
+      expect(pdf.status).toBe(503);
+      expect(pdf.body.error.message).toContain('Paste the list as text');
+    }
+    expect((await request(app).post('/api/admin/parties/read').set((await as(app, 'AGENT')).auth).send({ text: 'X Party (XP)' })).status).toBe(403);
   });
 });

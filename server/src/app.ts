@@ -14,6 +14,7 @@ import { auditLogRouter } from './modules/auditlog/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { donationsAdminRouter, donationsPublicRouter, paymentCallbacksRouter } from './modules/donations/routes.js';
 import { electionsAdminRouter, electionsPublicRouter } from './modules/elections/routes.js';
+import { partiesAdminRouter } from './modules/parties/routes.js';
 import { exportsRouter } from './modules/exports/routes.js';
 import { filesRouter } from './modules/files/routes.js';
 import { financeAdminRouter, financePublicRouter } from './modules/finance/routes.js';
@@ -69,7 +70,7 @@ export function createApp() {
   // Role-specific portals.
   app.use('/api/agent', agentRouter());
   app.use('/api/verification', verificationRouter());
-  app.use('/api/admin', usersRouter(), electionsAdminRouter(), financeAdminRouter(), projectsAdminRouter(), accountabilityAdminRouter(), siteAdminRouter());
+  app.use('/api/admin', usersRouter(), partiesAdminRouter(), electionsAdminRouter(), financeAdminRouter(), projectsAdminRouter(), accountabilityAdminRouter(), siteAdminRouter());
   app.use('/api/admin/imports', importsRouter());
   app.use('/api/admin/donations', donationsAdminRouter());
   app.use('/api/admin/audit-log', auditLogRouter());

@@ -63,6 +63,7 @@ Audit log: `GET /audit-log`, `GET /audit-log/verify`. Site: `POST /updates`.
 ### Catalogue (admin)
 - `GET /admin/candidates?electionId&position&scopeRefId`, `POST /admin/candidates`, `PATCH /admin/candidates/:id` (needs `reason`) — `candidates.manage`.
 - `GET|POST /admin/parties`, `PATCH /admin/parties/:id` — `candidates.manage`. Public: `GET /public/parties`.
+- `POST /admin/parties/read` — preview of the ORPP register from `{url}` (https on orpp.or.ke only), a multipart PDF `file` (AI reader), or `{text}` (one party per line); nothing is saved. `POST /admin/parties/import` `{rows:[{name, abbreviation}], source:{title,url,asAt}}` creates only new, valid rows. Logos: `PATCH /admin/parties/:id {logoFileId | null}`.
 - `POST /admin/counties`, `PATCH /admin/counties/:id` (code immutable) — `counties.manage` (SUPER_ADMIN).
 - `GET /admin/elections/:id/areas` — constituencies with their wards.
 - `POST /admin/elections/:id/areas/load-official` — idempotently loads the IEBC 2022 constituency and ward schedule for the five counties; returns `{constituenciesAdded, wardsAdded, alreadyPresent, conflicts}`.

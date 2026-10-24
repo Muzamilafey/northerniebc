@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { uploadImage } from '../../lib/upload';
 import { ErrorBox, Field, PageHeader, PublicImage, Success } from '../../components/ui';
 import { useApi } from '../../lib/useApi';
+import { LogoEditor } from '../../components/LogoEditor';
 
 interface County { _id: string; code: string; name: string; region?: string; logoFileId?: string }
 
@@ -33,6 +34,10 @@ export default function CountiesAdmin() {
       setMsg({ err: (x as Error).message });
     }
   };
+  const setLogo = async (c: County, logoFileId: string | null) => {
+    await api(`/admin/counties/${c._id}`, { method: 'PATCH', body: { logoFileId } });
+    void list.reload();
+  };
   return (
     <div className="space-y-4">
       <PageHeader title="Counties" subtitle="Counties, constituencies and wards covered by the platform. Use official IEBC codes (e.g. Garissa 007). Codes cannot be changed after creation." />
@@ -53,8 +58,8 @@ export default function CountiesAdmin() {
             <div className="min-w-0 flex-1">
               <p className="font-semibold">{c.name}</p>
               <p className="text-xs text-gray-500">Code {c.code}{c.region ? ` · ${c.region}` : ''}</p>
+              <LogoEditor fileId={c.logoFileId} purpose="COUNTY_LOGO" label={`${c.name} County logo`} onSave={(id) => setLogo(c, id)} />
               <div className="mt-1 flex gap-3 text-xs">
-                <label className="link cursor-pointer">{c.logoFileId ? 'Replace logo' : 'Upload logo'}<input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await update(c, { logoFileId: await uploadImage('COUNTY_LOGO', file) }); } catch (x) { setMsg({ err: (x as Error).message }); } }} /></label>
                 <button className="link" onClick={() => { const region = prompt('Region', c.region ?? ''); if (region !== null) void update(c, { region }); }}>Edit region</button>
               </div>
             </div>
