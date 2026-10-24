@@ -34,7 +34,8 @@ export const SETTING_FIELDS = {
     KRA_CONSUMER_SECRET: { secret: true }
   },
   registration: {
-    AGENT_SELF_REGISTRATION: { secret: false, values: ['true', 'false'] }
+    AGENT_SELF_REGISTRATION: { secret: false, values: ['true', 'false'] },
+    AGENT_LOGIN: { secret: false, values: ['true', 'false'] }
   },
   ai: {
     AI_PROVIDER: { secret: false, values: ['anthropic', 'groq'] },
@@ -78,6 +79,10 @@ export function setting(name: string): string | undefined {
 }
 
 export const settingBool = (name: string) => setting(name) === 'true';
+
+/** Agents may sign in unless an administrator has closed agent sign-in (default open). */
+export const agentLoginOpen = () => setting('AGENT_LOGIN') !== 'false';
+export const AGENT_LOGIN_CLOSED = 'Agent sign-in is closed at the moment. Your coordinator will tell you when it opens.';
 
 export function settingsAge() {
   return Date.now() - loadedAt;

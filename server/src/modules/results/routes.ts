@@ -46,6 +46,8 @@ import { recordAuditStandalone } from '../../lib/audit.js';
 import { limiter } from '../../middleware/security.js';
 import { env } from '../../config/env.js';
 import { unauthorized as unauthorizedErr } from '../../lib/errors.js';
+import { AGENT_LOGIN_CLOSED, agentLoginOpen } from '../settings/service.js';
+import { intakeState } from '../elections/intake.js';
 
 const nonNeg = z.number().int().min(0).max(10_000_000);
 const fieldsSchema = z
@@ -112,6 +114,8 @@ const geoQuery = z
 export function agentRouter() {
   const r = Router();
   const agent = requirePermission('results.submit');
+  // Closing agent sign-in also stops agents who are already signed in.
+  r.use((req, _res, next) => next(agentLoginOpen() ? undefined : forbidden(AGENT_LOGIN_CLOSED)));
 
   /** Re-confirms the agent's password; required shortly before submitting a result. */
   r.post('/confirm-identity', agent, limiter('step-up', { windowMs: 15 * 60_000, limit: 10 }), async (req, res) => {
@@ -180,7 +184,7 @@ export function agentRouter() {
       }
       out.push({
         assignmentId: String(a._id),
-        election: { id: String(election._id), name: election.name, status: election.status, acceptingSubmissions: election.status === 'ACTIVE' },
+        election: { id: String(election._id), name: election.name, status: election.status, acceptingSubmissions: intakeState(election).open, intake: intakeState(election) },
         station: { id: String(station._id), code: station.code, name: station.name, registeredVoters: station.registeredVoters ?? null },
         county: county?.name,
         constituency: constituency?.name,

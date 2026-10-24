@@ -18,6 +18,11 @@ All privileged accounts must enrol an authenticator app (My account & security) 
 
 **Settings** holds integration credentials: KRA PIN Checker, M-Pesa (Daraja), SMTP email, AI reading (Anthropic or Groq: provider, key and model), and the switch for open agent self-registration. Values saved there override the server's `.env`. Secrets are stored encrypted, are never shown again after saving (leave a field blank to keep it), and every change is audit-logged without the secret values. Use **Test connection** after saving.
 
+## Agent sign-in and when results are received
+
+- **Agent sign-in** (Settings → Agents): when closed, agents cannot sign in, agents already signed in are stopped at their next action, and the public **Login** button is hidden. Staff sign in from the footer link (**Staff sign-in**) or `/login`. Self-registration is also closed while agent sign-in is closed.
+- **Receiving results** (Election setup, per election): **Open**, **Paused**, or **Scheduled** with an opening and/or closing time in East Africa Time (UTC+3). Outside the window the server refuses counts and result submissions. The agent screen shows "Results open at … EAT" or "Results closed at … EAT", and the + buttons are disabled. Reviewers and administrators are not affected.
+
 ## Agents: registration and approval
 
 - **Created by an administrator.** The account starts *awaiting approval*.

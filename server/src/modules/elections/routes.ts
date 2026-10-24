@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { parse } from '../../lib/http.js';
 import { requirePermission } from '../../middleware/auth.js';
 import { AREAS, AREAS_SOURCE } from '../../data/areas.js';
+import { intakeState } from './intake.js';
 import { COUNTIES } from '../../scripts/seedReference.js';
 import {
   Candidate,
@@ -46,6 +47,11 @@ const electionBody = z.object({
   countyIds: z.array(objectId).max(5).default([]),
   positions: z.array(positionConfig).max(6).default([]),
   publishProvisional: z.boolean().default(false),
+  resultsIntake: z
+    .object({ mode: z.enum(['OPEN', 'CLOSED', 'SCHEDULED']), opensAt: z.coerce.date().nullable().optional(), closesAt: z.coerce.date().nullable().optional() })
+    .refine((v) => v.mode !== 'SCHEDULED' || v.opensAt || v.closesAt, 'A schedule needs an opening or a closing time')
+    .refine((v) => !v.opensAt || !v.closesAt || v.closesAt > v.opensAt, 'The closing time must be after the opening time')
+    .optional(),
   sourceId: objectId.optional()
 });
 
@@ -128,7 +134,8 @@ export function electionsAdminRouter() {
   });
 
   r.get('/elections', requirePermission('results.monitor', 'elections.manage', 'agents.manage'), async (_req, res) => {
-    res.json({ items: await Election.find().sort({ electionDate: -1 }).lean() });
+    const items = await Election.find().sort({ electionDate: -1 }).lean();
+    res.json({ items: items.map((e) => ({ ...e, intake: intakeState(e) })) });
   });
 
   r.post('/elections', manage, async (req, res) => {
@@ -155,7 +162,7 @@ export function electionsAdminRouter() {
     await withTransaction(async (s) => {
       e.set(body);
       await e.save({ session: s });
-      await recordAudit(s, { actor: actor(req), action: 'election.updated', entityType: 'Election', entityId: String(e._id), before: { status: before.status, positions: before.positions, publishProvisional: before.publishProvisional }, after: body });
+      await recordAudit(s, { actor: actor(req), action: 'election.updated', entityType: 'Election', entityId: String(e._id), before: { status: before.status, positions: before.positions, publishProvisional: before.publishProvisional, resultsIntake: before.resultsIntake }, after: body });
     });
     res.json({ election: e });
   });

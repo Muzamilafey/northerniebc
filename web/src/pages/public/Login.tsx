@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { useSiteFlags } from '../../lib/siteFlags';
 import { ErrorBox, Field, Logo, Success } from '../../components/ui';
 
 export default function Login() {
@@ -31,11 +32,13 @@ export default function Login() {
       setBusy(false);
     }
   }
+  const flags = useSiteFlags();
   return (
     <div className="mx-auto max-w-sm">
       <div className="card space-y-4">
         <div className="flex justify-center"><Logo size={64} withText={false} /></div>
-        <h1 className="text-center text-xl font-bold text-navy-900">Staff &amp; agent sign in</h1>
+        <h1 className="text-center text-xl font-bold text-navy-900">{flags?.agentLogin === false ? 'Staff sign in' : 'Staff & agent sign in'}</h1>
+        {flags?.agentLogin === false && <p className="rounded-lg bg-amber-50 p-3 text-center text-sm text-amber-900">Agent sign-in is closed at the moment. Your coordinator will tell you when it opens.</p>}
         <form className="space-y-3" onSubmit={submit}>
           {!mfaToken ? (
             <>
@@ -49,7 +52,7 @@ export default function Login() {
           <button className="btn-primary w-full" disabled={busy}>{busy ? 'Please wait…' : mfaToken ? 'Verify' : 'Sign in'}</button>
         </form>
         <p className="text-center text-sm"><Link className="link" to="/forgot-password">Forgot password?</Link></p>
-        <p className="text-center text-sm"><Link className="link" to="/register">Register as a polling-station agent</Link></p>
+        {flags?.open && <p className="text-center text-sm"><Link className="link" to="/register">Register as a polling-station agent</Link></p>}
         <p className="text-center text-xs text-gray-500">Public visitors do not need an account.</p>
       </div>
     </div>

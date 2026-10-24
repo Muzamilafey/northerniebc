@@ -12,13 +12,13 @@ import { AgentRegistration, User } from '../../models/index.js';
 import { checkPinById, KraError, kraConfigured, maskName } from '../../integrations/kra.js';
 import { hashPassword, passwordProblems } from '../auth/password.js';
 import { enqueueEmail, getTransport } from '../notifications/service.js';
-import { settingBool } from '../settings/service.js';
+import { agentLoginOpen, settingBool } from '../settings/service.js';
 import { kenyanPhone } from '../users/routes.js';
 
 const LINK_TTL_MS = 24 * 3600_000;
 const GENERIC = 'If the details can be verified, a confirmation link has been sent to that email address. It expires in 24 hours.';
 
-export const registrationOpen = () => settingBool('AGENT_SELF_REGISTRATION') && kraConfigured();
+export const registrationOpen = () => settingBool('AGENT_SELF_REGISTRATION') && kraConfigured() && agentLoginOpen();
 
 /**
  * Open agent self-registration. The applicant gives only their national ID number and email;
@@ -31,7 +31,7 @@ export function registrationRouter() {
   const r = Router();
 
   r.get('/config', (_req, res) => {
-    res.json({ open: registrationOpen(), selfRegistrationEnabled: settingBool('AGENT_SELF_REGISTRATION'), kraConfigured: kraConfigured() });
+    res.json({ open: registrationOpen(), selfRegistrationEnabled: settingBool('AGENT_SELF_REGISTRATION'), kraConfigured: kraConfigured(), agentLogin: agentLoginOpen() });
   });
 
   r.post('/start', limiter('agent-registration', { windowMs: 60 * 60_000, limit: env.AGENT_REGISTRATIONS_PER_HOUR }), async (req, res) => {

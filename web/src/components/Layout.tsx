@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { can, ROLE_LABELS, useAuth, type Role } from '../lib/auth';
 import { Icon, type IconName } from './icons';
+import { useSiteFlags } from '../lib/siteFlags';
 import { Independence, Logo } from './ui';
 
 const NAV = [
@@ -20,6 +21,8 @@ export function Layout() {
   const { user, signOut } = useAuth();
   const nav = useNavigate();
   const portal = user ? (user.role === 'AGENT' ? '/agent' : '/admin') : null;
+  // When administrators close agent sign-in, the public Login button is hidden (staff use the footer link).
+  const showLogin = useSiteFlags()?.agentLogin !== false;
   return (
     <div className="flex min-h-screen flex-col">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:p-2">
@@ -49,9 +52,11 @@ export function Layout() {
                 </button>
               </>
             ) : (
-              <NavLink to="/login" className="rounded-md px-2.5 py-1.5 text-sm hover:bg-white/10">
-                Login
-              </NavLink>
+              showLogin && (
+                <NavLink to="/login" className="rounded-md px-2.5 py-1.5 text-sm hover:bg-white/10">
+                  Login
+                </NavLink>
+              )
             )}
           </nav>
           <div className="flex items-center gap-2 xl:hidden">
@@ -76,7 +81,7 @@ export function Layout() {
                 <button className="block w-full rounded px-2 py-2 text-left text-sm hover:bg-white/10" onClick={async () => { setOpen(false); await signOut(); nav('/'); }}>Sign out</button>
               </>
             ) : (
-              <NavLink to="/login" onClick={() => setOpen(false)} className="block rounded px-2 py-2 text-sm hover:bg-white/10">Login</NavLink>
+              showLogin && <NavLink to="/login" onClick={() => setOpen(false)} className="block rounded px-2 py-2 text-sm hover:bg-white/10">Login</NavLink>
             )}
           </nav>
         )}
@@ -95,6 +100,7 @@ export function Layout() {
             <Link className="link block" to="/accountability#report">Report an issue or request a correction</Link>
             <Link className="link block" to="/donate/transparency">Donation transparency</Link>
             <Link className="link block" to="/privacy">Privacy notice</Link>
+            {!user && <Link className="block text-xs text-gray-500 hover:underline" to="/login">Staff sign-in</Link>}
           </div>
           <Independence />
         </div>

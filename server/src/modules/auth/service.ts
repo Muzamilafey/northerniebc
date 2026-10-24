@@ -5,7 +5,8 @@ import QRCode from 'qrcode';
 import { env } from '../../config/env.js';
 import { recordAuditStandalone, recordAudit } from '../../lib/audit.js';
 import { decrypt, encrypt, randomToken, sha256 } from '../../lib/crypto.js';
-import { badRequest, unauthorized } from '../../lib/errors.js';
+import { badRequest, forbidden, unauthorized } from '../../lib/errors.js';
+import { AGENT_LOGIN_CLOSED, agentLoginOpen } from '../settings/service.js';
 import { PRIVILEGED_ROLES, Session, User, type Role } from '../../models/identity.js';
 import { signAccessToken } from '../../middleware/auth.js';
 import { getDummyHash, hashPassword, passwordProblems, verifyPassword } from './password.js';
@@ -129,6 +130,10 @@ export async function login(identifier: string, password: string, client: Client
   user.failedLoginCount = 0;
   user.lockedUntil = undefined;
   await user.save();
+  if (user.role === 'AGENT' && !agentLoginOpen()) {
+    await recordAuditStandalone({ actor: { id: String(user._id), role: user.role, ip: client.ip }, action: 'auth.login_refused', entityType: 'User', entityId: String(user._id), meta: { reason: 'agent_login_closed' } });
+    throw forbidden(AGENT_LOGIN_CLOSED);
+  }
 
   if (user.mfa?.enabled) {
     const mfaToken = jwt.sign({ sub: String(user._id), typ: 'mfa' }, env.JWT_ACCESS_SECRET, {
@@ -210,6 +215,7 @@ export async function refresh(cookie: string | undefined, client: ClientInfo): P
   }
   const user = await User.findById(session.userId).lean();
   if (!user || user.status !== 'ACTIVE') throw unauthorized('Account not active');
+  if (user.role === 'AGENT' && !agentLoginOpen()) throw unauthorized(AGENT_LOGIN_CLOSED);
   const next = randomToken(32);
   const r = await Session.updateOne(
     { _id: session._id, currentTokenHash: hash },

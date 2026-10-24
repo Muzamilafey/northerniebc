@@ -8,7 +8,7 @@ interface FieldInfo { value?: string; set: boolean; source: 'settings' | 'enviro
 type Settings = Record<string, Record<string, FieldInfo>>;
 
 const SECTIONS: { id: string; title: string; help: string; testable: boolean }[] = [
-  { id: 'registration', title: 'Agent self-registration', help: 'When on (and KRA is configured), agents can register with their ID number and email. Their name and KRA PIN come from KRA and cannot be changed. Every self-registered agent still needs approval.', testable: false },
+  { id: 'registration', title: 'Agents: sign-in and self-registration', help: 'Agent sign-in: when closed, agents cannot sign in or use the agent app (staff are not affected) and the public Login button is hidden. Self-registration: when on (and KRA is configured), agents can register with their ID number and email; their name and KRA PIN come from KRA and cannot be changed, and every self-registered agent still needs approval.', testable: false },
   { id: 'kra', title: 'KRA PIN Checker', help: 'Consumer key and secret from the KRA developer portal (sandbox: https://sbx.kra.go.ke). For production, enter the base URL KRA issues to you.', testable: true },
   { id: 'mpesa', title: 'M-Pesa (Daraja) donations', help: 'Daraja app credentials. The callback token must be a random string of at least 24 characters. Only set "verified operational" after a successful end-to-end test.', testable: true },
   { id: 'ai', title: 'AI reading (forms and party lists)', help: 'Reads results-form photos and the party register. Choose Anthropic (Claude) or Groq and give that provider\'s API key. Groq reads photos and text but not PDFs. Readings are always checked by people before use. Leave the provider blank to use whichever has a key (Anthropic first).', testable: true },
@@ -17,6 +17,7 @@ const SECTIONS: { id: string; title: string; help: string; testable: boolean }[]
 
 const LABELS: Record<string, string> = {
   AGENT_SELF_REGISTRATION: 'Open agent self-registration',
+  AGENT_LOGIN: 'Agent sign-in open (default: true)',
   AI_PROVIDER: 'Provider',
   ANTHROPIC_API_KEY: 'Anthropic API key',
   FORM_EXTRACTION_MODEL: 'Anthropic model (default claude-opus-5-5)',

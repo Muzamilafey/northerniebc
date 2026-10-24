@@ -25,6 +25,7 @@ import { eligibleCandidates } from '../elections/service.js';
 import { assertRecentStepUp, assertVettedAgent, sessionChecks } from '../counting/service.js';
 import { extractionChecks } from '../extraction/service.js';
 import { reconcile, sameFigures, type ResultFields } from './reconciliation.js';
+import { intakeState } from '../elections/intake.js';
 
 export const DECLARATION_TEXT =
   'I declare that the figures entered are a true transcription of the official results declared at this polling station, and that I have not altered any figure.';
@@ -113,6 +114,8 @@ export async function submitResult(agent: AuthUser, i: SubmitInput, ip?: string,
   const election = await Election.findById(i.electionId).lean();
   if (!election) throw notFound('Election not found');
   if (election.status !== 'ACTIVE') throw unprocessable('This election is not accepting submissions');
+  const intake = intakeState(election);
+  if (!intake.open) throw unprocessable(intake.message);
   const posCfg = election.positions.find((p) => p.position === i.position && p.enabled);
   if (!posCfg) throw unprocessable('This position is not enabled for the election');
 

@@ -158,6 +158,12 @@ const electionSchema = new Schema(
     positions: { type: [positionConfigSchema], default: [] },
     /** When false, only verified results are shown publicly. */
     publishProvisional: { type: Boolean, default: false },
+    /** When agents may send counts and results (see modules/elections/intake.ts). */
+    resultsIntake: {
+      mode: { type: String, enum: ['OPEN', 'CLOSED', 'SCHEDULED'], default: 'OPEN' },
+      opensAt: { type: Date },
+      closesAt: { type: Date }
+    },
     /** Station count used as national denominator for presidential coverage is NOT assumed; coverage is per covered stations. */
     resultsVisibleFrom: { type: Date },
     sourceId: { type: Schema.Types.ObjectId, ref: 'DataSource' },

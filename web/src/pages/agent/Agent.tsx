@@ -23,7 +23,7 @@ interface Ballot {
 }
 interface Assignment {
   assignmentId: string;
-  election: { id: string; name: string; status: string; acceptingSubmissions: boolean };
+  election: { id: string; name: string; status: string; acceptingSubmissions: boolean; intake?: { open: boolean; mode: string; opensAt: string | null; closesAt: string | null; message: string } };
   station: { id: string; code: string; name: string; registeredVoters: number | null };
   county?: string;
   constituency?: string;
@@ -122,7 +122,10 @@ export function AgentHome() {
           <p className="text-xs text-gray-500">{a.election.name}</p>
           <h1 className="text-lg font-bold text-navy-900">{a.station.code} — {a.station.name}</h1>
           <p className="text-xs text-gray-600">{[a.ward, a.constituency, a.county].filter(Boolean).join(', ')} · Registered voters: {fmtNumber(a.station.registeredVoters)}</p>
-          {!a.election.acceptingSubmissions && <p className="mt-2 text-sm text-amber-800">This election is not accepting submissions.</p>}
+          <p className={`mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${a.election.acceptingSubmissions ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-900'}`} role="status">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${a.election.acceptingSubmissions ? 'bg-green-600' : 'bg-amber-500'}`} aria-hidden="true" />
+            {a.election.intake?.message ?? (a.election.acceptingSubmissions ? 'Receiving results.' : 'This election is not accepting results.')}
+          </p>
           <ul className="mt-3 divide-y">
             {a.ballots.map((b) => {
               const d = drafts[draftKey(a.election.id, a.station.id, b.position)];
@@ -282,6 +285,12 @@ export function CountScreen() {
       {d.state === 'FAILED' && <ErrorBox error={`Not accepted by the server: ${d.lastError}. Fix the figures and submit again.`} />}
       {d.state === 'QUEUED' && <p className="rounded bg-amber-50 p-2 text-sm text-amber-900">Queued on this phone — not yet received by the server. {d.lastError ? `Last attempt: ${d.lastError}` : ''}</p>}
 
+      {!a.election.acceptingSubmissions && (
+        <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900" role="status">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+          {a.election.intake?.message ?? 'This election is not accepting results.'} Counting resumes when results open.
+        </p>
+      )}
       {step === 'count' ? (
         <>
           <ul className="space-y-2">
@@ -303,7 +312,7 @@ export function CountScreen() {
                   />
                 </div>
                 <span className="w-16 text-right text-2xl font-bold tabular-nums">{fmtNumber(d.candidateVotes[c.id] ?? 0)}</span>
-                <button aria-label={`Add one vote for ${c.fullName}`} className="h-16 w-16 shrink-0 rounded-2xl bg-brand-600 text-3xl font-bold text-white active:scale-95 disabled:opacity-40" disabled={locked} onClick={() => tap(c.id)}>+</button>
+                <button aria-label={`Add one vote for ${c.fullName}`} className="h-16 w-16 shrink-0 rounded-2xl bg-brand-600 text-3xl font-bold text-white active:scale-95 disabled:opacity-40" disabled={locked || !a.election.acceptingSubmissions} onClick={() => tap(c.id)}>+</button>
               </li>
             ))}
           </ul>

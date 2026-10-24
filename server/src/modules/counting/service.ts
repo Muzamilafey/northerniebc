@@ -7,6 +7,7 @@ import { badRequest, conflict, forbidden, notFound, unprocessable } from '../../
 import { AgentAssignment, CountSession, Election, PollingStation, TallyEvent, User, type Position } from '../../models/index.js';
 import type { AuthUser } from '../../types/express.js';
 import { eligibleCandidates } from '../elections/service.js';
+import { intakeState } from '../elections/intake.js';
 
 export interface TallyEventInput {
   seq: number;
@@ -55,6 +56,8 @@ export async function recordTallyEvents(
   if (!assignment) throw forbidden('You are not assigned to this polling station');
   const [election, station] = await Promise.all([Election.findById(input.electionId).lean(), PollingStation.findById(input.pollingStationId).lean()]);
   if (!election || election.status !== 'ACTIVE') throw unprocessable('This election is not accepting counts');
+  const intake = intakeState(election);
+  if (!intake.open) throw unprocessable(intake.message);
   if (!election.positions.some((p) => p.position === input.position && p.enabled)) throw unprocessable('Position not enabled');
   const ballot = new Set((await eligibleCandidates(station!, input.position)).map((c) => String(c._id)));
 
