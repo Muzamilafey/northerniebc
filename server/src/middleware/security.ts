@@ -15,7 +15,7 @@ export function rejectMongoOperators(req: Request, _res: Response, next: NextFun
     if (depth > 20) return true;
     if (Array.isArray(v)) return v.some((x) => bad(x, depth + 1));
     if (v && typeof v === 'object') {
-      return Object.entries(v as Record<string, unknown>).some(([k, val]) => k.startsWith('$') || k.includes('.') || bad(val, depth + 1));
+      return Object.entries(v as Record<string, unknown>).some(([k, val]) => k.includes('$') || k.includes('.') || bad(val, depth + 1));
     }
     return false;
   };
