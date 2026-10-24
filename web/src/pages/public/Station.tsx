@@ -1,11 +1,11 @@
 import { useParams } from 'react-router-dom';
-import { ErrorBox, Loading, PageHeader, StatusBadge } from '../../components/ui';
+import { ErrorBox, Loading, PageHeader, PublicImage, StatusBadge } from '../../components/ui';
 import { fmtDateTime, fmtNumber, POSITION_LABELS } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
 
 interface StationData {
   station: { code: string; name: string; registeredVoters?: number };
-  results: { position: string; status: string; updatedAt?: string; officialMatch?: { matches: boolean } | null; candidates?: { candidateId: string; fullName: string; partyAbbreviation?: string; votes: number }[] }[];
+  results: { position: string; status: string; updatedAt?: string; officialMatch?: { matches: boolean } | null; candidates?: { candidateId: string; fullName: string; partyAbbreviation?: string; photoFileId?: string | null; partyLogoFileId?: string | null; votes: number }[] }[];
   disclaimer: string;
 }
 
@@ -29,7 +29,7 @@ export default function Station() {
               <table className="table mt-2">
                 <tbody>
                   {r.candidates.map((c) => (
-                    <tr key={c.candidateId}><td>{c.fullName} <span className="text-gray-500">{c.partyAbbreviation}</span></td><td className="text-right tabular-nums">{fmtNumber(c.votes)}</td></tr>
+                    <tr key={c.candidateId}><td><span className="flex items-center gap-2"><PublicImage fileId={c.photoFileId} alt="" fallback={c.fullName} size={28} rounded="rounded-full" />{c.fullName} <PublicImage fileId={c.partyLogoFileId} alt="" fallback={c.partyAbbreviation ?? 'IND'} size={18} /><span className="text-gray-500">{c.partyAbbreviation}</span></span></td><td className="text-right tabular-nums">{fmtNumber(c.votes)}</td></tr>
                   ))}
                 </tbody>
               </table>

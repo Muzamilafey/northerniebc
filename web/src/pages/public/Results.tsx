@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Empty, ErrorBox, Loading, PageHeader, StatusBadge } from '../../components/ui';
+import { Empty, ErrorBox, Loading, PageHeader, PublicImage, StatusBadge } from '../../components/ui';
 import { fmtDateTime, fmtNumber, fmtPct, POSITION_LABELS } from '../../lib/format';
 import { getSocket } from '../../lib/socket';
 import { useApi } from '../../lib/useApi';
@@ -10,7 +10,7 @@ interface Election { _id: string; name: string; status: string; positions: { pos
 interface Area { _id: string; name: string; code: string }
 interface Tally {
   election: { name: string; status: string; publishProvisional: boolean };
-  candidates: { candidateId: string; fullName: string; party?: string; partyAbbreviation?: string; votes: number; verifiedVotes: number; share: number | null; rank: number }[];
+  candidates: { candidateId: string; fullName: string; party?: string; partyAbbreviation?: string; photoFileId?: string | null; partyLogoFileId?: string | null; votes: number; verifiedVotes: number; share: number | null; rank: number }[];
   totals: { totalRecordedVotes: number; verifiedVotes: number; unverifiedVotes: number };
   coverage: { reported: number; registered: number; outstanding: number; percent: number | null };
   awaitingVerificationStations: number;
@@ -159,8 +159,8 @@ export default function Results() {
                     {filtered.map((c) => (
                       <tr key={c.candidateId}>
                         <td>{c.rank}</td>
-                        <td className="font-medium">{c.fullName}</td>
-                        <td>{c.partyAbbreviation ?? c.party ?? 'Independent'}</td>
+                        <td className="font-medium"><span className="flex items-center gap-2"><PublicImage fileId={c.photoFileId} alt="" fallback={c.fullName} size={32} rounded="rounded-full" />{c.fullName}</span></td>
+                        <td><span className="flex items-center gap-2"><PublicImage fileId={c.partyLogoFileId} alt="" fallback={c.partyAbbreviation ?? 'IND'} size={24} />{c.partyAbbreviation ?? c.party ?? 'Independent'}</span></td>
                         <td className="text-right tabular-nums">{fmtNumber(c.votes)}</td>
                         <td className="text-right tabular-nums">{fmtPct(c.share)}</td>
                       </tr>

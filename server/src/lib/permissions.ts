@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   'elections.manage': ['SUPER_ADMIN'],
   'geography.import': [...ALL_ADMIN],
   'candidates.manage': [...ALL_ADMIN],
+  'counties.manage': ['SUPER_ADMIN'],
   'results.submit': ['AGENT'],
   'results.monitor': [...ALL_ADMIN, 'COUNTY_ADMIN', 'CONSTITUENCY_SUPERVISOR', 'VERIFICATION_OFFICER'],
   'results.verify': [...ALL_ADMIN, 'VERIFICATION_OFFICER'],

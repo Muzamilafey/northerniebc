@@ -120,7 +120,8 @@ export async function tally(o: TallyOptions) {
     position: o.position,
     $or: [{ _id: { $in: voteIds } }, ...(ballotDefined ? [{ active: true, scopeRefId: scopeRef ? oid(scopeRef) : null }] : [])]
   })
-    .select('fullName party partyAbbreviation photoFileId ballotOrder scopeRefId')
+    .select('fullName party partyAbbreviation photoFileId ballotOrder scopeRefId partyId')
+    .populate('partyId', 'logoFileId')
     .lean();
   const byId = new Map(agg.map((a) => [String(a._id), a]));
   const { rows, totalVotes, verifiedVotes } = computeShares(
@@ -139,7 +140,8 @@ export async function tally(o: TallyOptions) {
       fullName: cmeta.get(r.candidateId)?.fullName,
       party: cmeta.get(r.candidateId)?.party,
       partyAbbreviation: cmeta.get(r.candidateId)?.partyAbbreviation,
-      photoFileId: cmeta.get(r.candidateId)?.photoFileId ?? null
+      photoFileId: cmeta.get(r.candidateId)?.photoFileId ?? null,
+      partyLogoFileId: (cmeta.get(r.candidateId)?.partyId as unknown as { logoFileId?: unknown } | null)?.logoFileId ?? null
     })),
     totals: { totalRecordedVotes: totalVotes, verifiedVotes, unverifiedVotes: totalVotes - verifiedVotes },
     coverage: coverage(reported, registered),

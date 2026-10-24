@@ -60,7 +60,7 @@ export function clamavScan(buf: Buffer): Promise<{ clean: boolean; detail: strin
 }
 
 export interface SaveOptions {
-  purpose: 'RESULT_EVIDENCE' | 'CITIZEN_REPORT' | 'IMPORT' | 'SOURCE_DOCUMENT' | 'PROJECT_EVIDENCE' | 'CANDIDATE_PHOTO' | 'RECEIPT' | 'RECONCILIATION_EVIDENCE';
+  purpose: 'RESULT_EVIDENCE' | 'CITIZEN_REPORT' | 'IMPORT' | 'SOURCE_DOCUMENT' | 'PROJECT_EVIDENCE' | 'CANDIDATE_PHOTO' | 'PARTY_LOGO' | 'COUNTY_LOGO' | 'RECEIPT' | 'RECONCILIATION_EVIDENCE';
   allowed: readonly string[];
   originalName?: string;
   uploadedBy?: string;

@@ -85,7 +85,7 @@ const storedFileSchema = new Schema(
     sha256: { type: String, required: true, index: true },
     purpose: {
       type: String,
-      enum: ['RESULT_EVIDENCE', 'CITIZEN_REPORT', 'IMPORT', 'SOURCE_DOCUMENT', 'PROJECT_EVIDENCE', 'CANDIDATE_PHOTO', 'RECEIPT', 'RECONCILIATION_EVIDENCE'],
+      enum: ['RESULT_EVIDENCE', 'CITIZEN_REPORT', 'IMPORT', 'SOURCE_DOCUMENT', 'PROJECT_EVIDENCE', 'CANDIDATE_PHOTO', 'PARTY_LOGO', 'COUNTY_LOGO', 'RECEIPT', 'RECONCILIATION_EVIDENCE'],
       required: true
     },
     visibility: { type: String, enum: ['PRIVATE', 'PUBLIC'], default: 'PRIVATE' },

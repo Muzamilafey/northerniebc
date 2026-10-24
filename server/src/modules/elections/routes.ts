@@ -11,6 +11,8 @@ import {
   County,
   Election,
   FORM_TEMPLATES,
+  Party,
+  StoredFile,
   PollingStation,
   POSITION_LABELS,
   POSITION_SCOPE,
@@ -102,8 +104,12 @@ export function electionsPublicRouter() {
     const filter: Record<string, unknown> = { electionId: String(req.params.id), active: true };
     if (q.position) filter.position = q.position;
     if (q.scopeRefId) filter.scopeRefId = q.scopeRefId;
-    const items = await Candidate.find(filter).sort({ position: 1, ballotOrder: 1, fullName: 1 }).select('-__v').lean();
+    const items = await Candidate.find(filter).sort({ position: 1, ballotOrder: 1, fullName: 1 }).select('-__v').populate('partyId', 'name abbreviation logoFileId').lean();
     res.json({ items });
+  });
+
+  r.get('/parties', async (_req, res) => {
+    res.json({ items: await Party.find({ active: true }).sort({ name: 1 }).select('name abbreviation logoFileId').lean() });
   });
 
   return r;
@@ -155,6 +161,7 @@ export function electionsAdminRouter() {
     electionId: objectId,
     position: z.enum(POSITIONS),
     fullName: z.string().min(3).max(200),
+    partyId: objectId.nullable().optional(),
     party: z.string().max(200).optional(),
     partyAbbreviation: z.string().max(20).optional(),
     independent: z.boolean().default(false),
@@ -168,6 +175,8 @@ export function electionsAdminRouter() {
   r.post('/candidates', requirePermission('candidates.manage'), async (req, res) => {
     const body = parse(candidateBody, req.body);
     await validateCandidateScope(body.electionId, body.position, body.scopeRefId ?? null);
+    Object.assign(body, await partyFields(body.partyId, body.independent));
+    if (body.photoFileId) await assertImage(body.photoFileId, 'CANDIDATE_PHOTO');
     const c = await withTransaction(async (s) => {
       const [doc] = await Candidate.create([{ ...body, scopeType: POSITION_SCOPE[body.position], scopeRefId: body.scopeRefId ?? null }], { session: s });
       await recordAudit(s, { actor: actor(req), action: 'candidate.created', entityType: 'Candidate', entityId: String(doc!._id), after: body });
@@ -177,7 +186,9 @@ export function electionsAdminRouter() {
   });
 
   r.patch('/candidates/:id', requirePermission('candidates.manage'), async (req, res) => {
-    const body = parse(candidateBody.pick({ fullName: true, party: true, partyAbbreviation: true, ballotOrder: true, sourceId: true, sourceReference: true, photoFileId: true }).partial().extend({ active: z.boolean().optional(), reason: z.string().min(3).max(500) }), req.body);
+    const body = parse(candidateBody.pick({ fullName: true, partyId: true, independent: true, party: true, partyAbbreviation: true, ballotOrder: true, sourceId: true, sourceReference: true, photoFileId: true }).partial().extend({ active: z.boolean().optional(), reason: z.string().min(3).max(500) }), req.body);
+    if (body.partyId !== undefined || body.independent !== undefined) Object.assign(body, await partyFields(body.partyId, body.independent ?? false));
+    if (body.photoFileId) await assertImage(body.photoFileId, 'CANDIDATE_PHOTO');
     const c = await Candidate.findById(String(req.params.id));
     if (!c) throw notFound();
     const before = c.toObject();
@@ -190,7 +201,108 @@ export function electionsAdminRouter() {
     res.json({ candidate: c });
   });
 
+  // ---- Aspirant listing for administrators (includes inactive) ----
+  r.get('/candidates', requirePermission('candidates.manage'), async (req, res) => {
+    const q = parse(z.object({ electionId: objectId, position: z.enum(POSITIONS).optional(), scopeRefId: objectId.optional() }).passthrough(), req.query);
+    const filter: Record<string, unknown> = { electionId: q.electionId };
+    if (q.position) filter.position = q.position;
+    if (q.scopeRefId) filter.scopeRefId = q.scopeRefId;
+    const items = await Candidate.find(filter).sort({ position: 1, scopeRefId: 1, ballotOrder: 1, fullName: 1 }).populate('partyId', 'name abbreviation logoFileId').lean();
+    res.json({ items });
+  });
+
+  // ---- Parties ----
+  const partyBody = z.object({
+    name: z.string().trim().min(2).max(200),
+    abbreviation: z.string().trim().min(1).max(20),
+    logoFileId: objectId.nullable().optional(),
+    active: z.boolean().optional(),
+    sourceReference: z.string().max(300).optional()
+  });
+
+  r.get('/parties', requirePermission('candidates.manage'), async (_req, res) => {
+    res.json({ items: await Party.find().sort({ name: 1 }).lean() });
+  });
+
+  r.post('/parties', requirePermission('candidates.manage'), async (req, res) => {
+    const body = parse(partyBody, req.body);
+    if (body.logoFileId) await assertImage(body.logoFileId, 'PARTY_LOGO');
+    if (await Party.exists({ $or: [{ abbreviation: body.abbreviation.toUpperCase() }, { name: body.name }] }).collation({ locale: 'en', strength: 2 })) throw conflict('A party with this name or abbreviation already exists');
+    const p = await withTransaction(async (s) => {
+      const [doc] = await Party.create([body], { session: s });
+      await recordAudit(s, { actor: actor(req), action: 'party.created', entityType: 'Party', entityId: String(doc!._id), after: body });
+      return doc!;
+    });
+    res.status(201).json({ party: p });
+  });
+
+  r.patch('/parties/:id', requirePermission('candidates.manage'), async (req, res) => {
+    const body = parse(partyBody.partial(), req.body);
+    if (body.logoFileId) await assertImage(body.logoFileId, 'PARTY_LOGO');
+    const p = await Party.findById(String(req.params.id));
+    if (!p) throw notFound();
+    const before = p.toObject();
+    await withTransaction(async (s) => {
+      p.set(body);
+      await p.save({ session: s });
+      // Keep the ballot name of this party's aspirants in step with the party record.
+      if (body.name || body.abbreviation) await Candidate.updateMany({ partyId: p._id }, { $set: { party: p.name, partyAbbreviation: p.abbreviation } }, { session: s });
+      await recordAudit(s, { actor: actor(req), action: 'party.updated', entityType: 'Party', entityId: String(p._id), before, after: body });
+    });
+    res.json({ party: p });
+  });
+
+  // ---- Counties ----
+  const countyBody = z.object({
+    code: z.string().trim().regex(/^\d{3}$/, 'County code is three digits, e.g. 007'),
+    name: z.string().trim().min(2).max(100),
+    region: z.string().trim().max(100).optional(),
+    logoFileId: objectId.nullable().optional()
+  });
+
+  r.post('/counties', requirePermission('counties.manage'), async (req, res) => {
+    const body = parse(countyBody, req.body);
+    if (body.logoFileId) await assertImage(body.logoFileId, 'COUNTY_LOGO');
+    const slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (await County.exists({ $or: [{ code: body.code }, { slug }] })) throw conflict('A county with this code or name already exists');
+    const c = await withTransaction(async (s) => {
+      const [doc] = await County.create([{ ...body, slug }], { session: s });
+      await recordAudit(s, { actor: actor(req), action: 'county.created', entityType: 'County', entityId: String(doc!._id), after: body });
+      return doc!;
+    });
+    res.status(201).json({ county: c });
+  });
+
+  r.patch('/counties/:id', requirePermission('counties.manage'), async (req, res) => {
+    // Codes are fixed once created (records reference them); name, region and logo can change.
+    const body = parse(countyBody.omit({ code: true }).partial(), req.body);
+    if (body.logoFileId) await assertImage(body.logoFileId, 'COUNTY_LOGO');
+    const c = await County.findById(String(req.params.id));
+    if (!c) throw notFound();
+    const before = c.toObject();
+    await withTransaction(async (s) => {
+      c.set(body);
+      await c.save({ session: s });
+      await recordAudit(s, { actor: actor(req), action: 'county.updated', entityType: 'County', entityId: String(c._id), before, after: body });
+    });
+    res.json({ county: c });
+  });
+
   return r;
+}
+
+/** Copies the party's ballot name onto the aspirant; independents carry no party. */
+async function partyFields(partyId: string | null | undefined, independent: boolean) {
+  if (independent) return { partyId: null, party: 'Independent', partyAbbreviation: 'IND', independent: true };
+  if (!partyId) return {};
+  const p = await Party.findById(partyId).lean();
+  if (!p || !p.active) throw badRequest('Unknown or inactive party');
+  return { partyId: p._id, party: p.name, partyAbbreviation: p.abbreviation, independent: false };
+}
+
+async function assertImage(fileId: string, purpose: 'PARTY_LOGO' | 'COUNTY_LOGO' | 'CANDIDATE_PHOTO') {
+  const f = await StoredFile.findById(fileId).lean();
+  if (!f || f.purpose !== purpose) throw badRequest('Upload the image first');
 }
 
 export async function validateCandidateScope(electionId: string, position: Position, scopeRefId: string | null) {

@@ -14,6 +14,7 @@ import {
   Donation,
   FINDING_CATEGORIES,
   OfficialStationResult,
+  Party,
   PERCENT_METRICS,
   PHYSICAL_PROGRESS_BASIS,
   PollingStation,
@@ -160,7 +161,10 @@ export const IMPORTERS: Record<string, Importer> = {
       }
       const ballotOrder = num(row.ballot_order);
       if (Number.isNaN(ballotOrder)) return invalid('ballot_order must be a number');
-      const normalized = { position, fullName, party: str(row.party), partyAbbreviation: str(row.party_abbreviation), independent: bool(row.independent), scopeType, scopeRefId, ballotOrder, sourceReference: str(row.source_reference) };
+      // Link to a registered party (by abbreviation) so its logo shows; otherwise keep the ballot name only.
+      const abbr = str(row.party_abbreviation)?.toUpperCase();
+      const partyDoc = abbr ? await Party.findOne({ abbreviation: abbr }).lean() : null;
+      const normalized = { position, fullName, party: partyDoc?.name ?? str(row.party), partyAbbreviation: abbr, partyId: partyDoc?._id, independent: bool(row.independent), scopeType, scopeRefId, ballotOrder, sourceReference: str(row.source_reference) };
       const naturalKey = `cand:${position}:${String(scopeRefId)}:${fullName.toLowerCase()}`;
       const existing = await Candidate.findOne({ electionId: ctx.electionId, position, scopeRefId, fullName }).lean();
       if (existing) {

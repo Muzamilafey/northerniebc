@@ -26,6 +26,7 @@ import {
   CountSession,
   FormExtraction,
   FORM_TEMPLATES,
+  Party,
   Session,
   TallyEvent,
   UNDO_REASONS,
@@ -173,7 +174,7 @@ export function agentRouter() {
           requiredFields: p.requiredFields,
           rules: p.rules,
           requireEvidence: p.requireEvidence,
-          candidates: candidates.map((c) => ({ id: String(c._id), fullName: c.fullName, party: c.party, partyAbbreviation: c.partyAbbreviation, photoFileId: c.photoFileId ?? null })),
+          candidates: await Promise.all(candidates.map(async (c) => ({ id: String(c._id), fullName: c.fullName, party: c.party, partyAbbreviation: c.partyAbbreviation, photoFileId: c.photoFileId ?? null, partyLogoFileId: c.partyId ? ((await Party.findById(c.partyId).select('logoFileId').lean())?.logoFileId ?? null) : null }))),
           submission: sub ? { submissionId: sub.submissionId, status: sub.status, currentRevision: sub.currentRevision, hasConflict: sub.hasConflict } : null
         });
       }
@@ -367,8 +368,8 @@ export function publicResultsRouter() {
       .select('position status candidateVotes fields updatedAt officialMatch.matches officialMatch.checkedAt')
       .lean();
     const ids = results.flatMap((x) => x.candidateVotes.map((c) => c.candidateId));
-    const cands = await Candidate.find({ _id: { $in: ids } }).select('fullName party partyAbbreviation').lean();
-    const cm = new Map(cands.map((c) => [String(c._id), c]));
+    const cands = await Candidate.find({ _id: { $in: ids } }).select('fullName party partyAbbreviation photoFileId partyId').populate('partyId', 'logoFileId').lean();
+    const cm = new Map(cands.map((c) => [String(c._id), { fullName: c.fullName, party: c.party, partyAbbreviation: c.partyAbbreviation, photoFileId: c.photoFileId ?? null, partyLogoFileId: (c.partyId as unknown as { logoFileId?: unknown } | null)?.logoFileId ?? null }]));
     res.json({
       station,
       results: POSITIONS.filter((p) => election.positions.some((x) => x.position === p && x.enabled)).map((p) => {

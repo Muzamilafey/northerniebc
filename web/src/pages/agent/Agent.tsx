@@ -4,7 +4,7 @@ import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { draftKey, increment, newDraft, queue, setVotes, total, undoLast, type Change, type Draft, type UndoReason } from '../../lib/draft';
 import { allDrafts, getDraft, onSync, onTally, saveChange, saveDraft, sendTallies, syncNow, type SyncStatus, type TallyStatus } from '../../lib/offline';
-import { ErrorBox, Loading, Logo, StatusBadge, Success } from '../../components/ui';
+import { ErrorBox, Loading, Logo, PublicImage, StatusBadge, Success } from '../../components/ui';
 import { fmtDateTime, fmtNumber, humanize, POSITION_LABELS } from '../../lib/format';
 import { getMeta, setMeta } from '../../lib/offline';
 
@@ -17,7 +17,7 @@ interface Ballot {
   requiredFields: string[];
   rules: string[];
   requireEvidence: boolean;
-  candidates: { id: string; fullName: string; party?: string; partyAbbreviation?: string }[];
+  candidates: { id: string; fullName: string; party?: string; partyAbbreviation?: string; photoFileId?: string | null; partyLogoFileId?: string | null }[];
   submission: null | { submissionId: string; status: string; currentRevision: number; hasConflict: boolean };
 }
 interface Assignment {
@@ -286,9 +286,10 @@ export function CountScreen() {
           <ul className="space-y-2">
             {ballot.candidates.map((c) => (
               <li key={c.id} className="card flex items-center gap-3 p-3">
+                <PublicImage fileId={c.photoFileId} alt={c.fullName} size={48} rounded="rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{c.fullName}</p>
-                  <p className="text-xs text-gray-500">{c.partyAbbreviation ?? c.party ?? 'Independent'}</p>
+                  <p className="flex items-center gap-1 text-xs text-gray-500"><PublicImage fileId={c.partyLogoFileId} alt="" fallback={c.partyAbbreviation ?? 'IND'} size={16} />{c.partyAbbreviation ?? c.party ?? 'Independent'}</p>
                   <input
                     aria-label={`Votes for ${c.fullName}`}
                     className="input mt-1 w-28 py-1 text-right tabular-nums"

@@ -13,11 +13,16 @@ export function filesRouter() {
   const r = Router();
 
   /** Staff uploads (source documents, project evidence, candidate photos, reconciliation evidence). */
-  r.post('/', requirePermission('sources.manage', 'projects.manage', 'candidates.manage', 'donations.reconcile', 'finance.import'), upload.single('file'), async (req, res) => {
-    const { purpose } = parse(z.object({ purpose: z.enum(['SOURCE_DOCUMENT', 'PROJECT_EVIDENCE', 'CANDIDATE_PHOTO', 'RECONCILIATION_EVIDENCE']) }), req.body);
+  r.post('/', requirePermission('sources.manage', 'projects.manage', 'candidates.manage', 'counties.manage', 'donations.reconcile', 'finance.import'), upload.single('file'), async (req, res) => {
+    const { purpose } = parse(z.object({ purpose: z.enum(['SOURCE_DOCUMENT', 'PROJECT_EVIDENCE', 'CANDIDATE_PHOTO', 'PARTY_LOGO', 'COUNTY_LOGO', 'RECONCILIATION_EVIDENCE']) }), req.body);
     if (!req.file) throw badRequest('No file uploaded');
-    const allowed = purpose === 'CANDIDATE_PHOTO' ? ALLOWED_MIME.image : [...ALLOWED_MIME.image, ...ALLOWED_MIME.document];
-    const visibility = purpose === 'CANDIDATE_PHOTO' || purpose === 'SOURCE_DOCUMENT' || purpose === 'PROJECT_EVIDENCE' ? 'PUBLIC' : 'PRIVATE';
+    if (purpose === 'COUNTY_LOGO' && !can(req.user!, 'counties.manage')) throw forbidden();
+    if ((purpose === 'PARTY_LOGO' || purpose === 'CANDIDATE_PHOTO') && !can(req.user!, 'candidates.manage')) throw forbidden();
+    const isImage = ['CANDIDATE_PHOTO', 'PARTY_LOGO', 'COUNTY_LOGO'].includes(purpose);
+    if (isImage && req.file.size > 2 * 1024 * 1024) throw badRequest('Images must be 2 MB or smaller');
+    // Images only (JPEG/PNG/WebP). SVG is not accepted because it can carry scripts.
+    const allowed = isImage ? ALLOWED_MIME.image : [...ALLOWED_MIME.image, ...ALLOWED_MIME.document];
+    const visibility = isImage || purpose === 'SOURCE_DOCUMENT' || purpose === 'PROJECT_EVIDENCE' ? 'PUBLIC' : 'PRIVATE';
     const f = await saveFile(req.file.buffer, { purpose, allowed, originalName: req.file.originalname, uploadedBy: req.user!.id, visibility });
     res.status(201).json({ fileId: String(f._id), sha256: f.sha256, scanStatus: f.scanStatus, visibility: f.visibility });
   });

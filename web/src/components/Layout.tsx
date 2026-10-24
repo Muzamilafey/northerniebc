@@ -113,6 +113,8 @@ export function StaffLayout() {
     ['/verify/approvals', 'Second-review approvals', can.verify(r) || can.donations(r)],
     ['/admin/users', 'Users & agents', can.manageUsers(r)],
     ['/admin/elections', 'Election setup', can.elections(r)],
+    ['/admin/aspirants', 'Aspirants & parties', r === 'SUPER_ADMIN' || r === 'REGIONAL_ADMIN'],
+    ['/admin/counties', 'Counties', r === 'SUPER_ADMIN'],
     ['/admin/imports', 'Data imports', can.finance(r) || can.elections(r)],
     ['/admin/records', 'Financial & project records', can.finance(r)],
     ['/admin/sources', 'Source registry', can.finance(r)],

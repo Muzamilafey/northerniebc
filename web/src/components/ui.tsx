@@ -181,3 +181,16 @@ export function Independence({ compact = false }: { compact?: boolean }) {
     </p>
   );
 }
+
+/** Public image (county logo, party logo, aspirant photo) with an initials fallback. */
+export function PublicImage({ fileId, alt, size = 40, rounded = 'rounded-md', fallback }: { fileId?: string | null; alt: string; size?: number; rounded?: string; fallback?: string }) {
+  if (!fileId) {
+    const initials = (fallback ?? alt).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
+    return (
+      <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center bg-gray-100 text-xs font-bold text-gray-500 ${rounded}`} style={{ width: size, height: size }}>
+        {initials || '?'}
+      </span>
+    );
+  }
+  return <img src={`/api/files/${fileId}`} alt={alt} width={size} height={size} loading="lazy" className={`shrink-0 object-contain ${rounded}`} style={{ width: size, height: size }} />;
+}

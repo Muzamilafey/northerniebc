@@ -8,11 +8,28 @@ const countySchema = new Schema(
     name: { type: String, required: true, unique: true },
     slug: { type: String, required: true, unique: true },
     region: { type: String },
+    /** County emblem/logo shown on county pages (public image, uploaded by an administrator). */
+    logoFileId: { type: Schema.Types.ObjectId, ref: 'StoredFile' },
     sourceId: { type: Schema.Types.ObjectId, ref: 'DataSource' }
   },
   { timestamps: true }
 );
 export const County = model('County', countySchema);
+
+/** Political parties used by aspirants, with their logo/symbol. */
+const partySchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 200 },
+    abbreviation: { type: String, required: true, trim: true, uppercase: true, maxlength: 20 },
+    logoFileId: { type: Schema.Types.ObjectId, ref: 'StoredFile' },
+    active: { type: Boolean, default: true },
+    sourceReference: { type: String, maxlength: 300 }
+  },
+  { timestamps: true }
+);
+partySchema.index({ abbreviation: 1 }, { unique: true });
+partySchema.index({ name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+export const Party = model('Party', partySchema);
 
 /**
  * Constituencies, wards and polling stations are election-specific: boundaries and the
@@ -155,6 +172,8 @@ const candidateSchema = new Schema(
     electionId: { type: Schema.Types.ObjectId, ref: 'Election', required: true },
     position: { type: String, enum: POSITIONS, required: true },
     fullName: { type: String, required: true, trim: true },
+    /** Registered party, if any. `party` / `partyAbbreviation` keep the name as shown on the ballot. */
+    partyId: { type: Schema.Types.ObjectId, ref: 'Party' },
     party: { type: String, trim: true },
     partyAbbreviation: { type: String, trim: true },
     independent: { type: Boolean, default: false },

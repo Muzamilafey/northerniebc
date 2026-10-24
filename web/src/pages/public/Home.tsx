@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
-import { DataUnavailable, ErrorBox, Loading, StatusBadge } from '../../components/ui';
+import { DataUnavailable, ErrorBox, Loading, PublicImage, StatusBadge } from '../../components/ui';
 import { fmtDate, fmtKesShort, fmtPct, humanize } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
 
 interface HomeData {
-  counties: { _id: string; name: string; slug: string; code: string }[];
+  counties: { _id: string; name: string; slug: string; code: string; logoFileId?: string | null }[];
   election: { id: string; name: string; status: string; active: boolean; electionDate: string; registeredStations: number; reportedStations: number; coveragePercent: number | null } | null;
   budgets: { countyId: string; county: string; figure: null | { metric: string; valueKes: number; financialYear: string; periodLabel: string; source: never; verificationStatus: string } }[];
   recentProjects: { reference: string; name: string; status: string; publishedAt: string }[];
@@ -66,8 +66,13 @@ export default function Home() {
                 const b = data.budgets.find((x) => x.countyId === c._id);
                 return (
                   <Link key={c._id} to={`/counties/${c.slug}`} className="card transition hover:border-brand-500 hover:shadow">
-                    <p className="text-xs text-gray-500">County {c.code}</p>
-                    <p className="text-lg font-bold text-navy-900">{c.name}</p>
+                    <div className="flex items-center gap-2">
+                      <PublicImage fileId={c.logoFileId} alt={`${c.name} County logo`} size={36} />
+                      <div>
+                        <p className="text-xs text-gray-500">County {c.code}</p>
+                        <p className="text-lg font-bold text-navy-900">{c.name}</p>
+                      </div>
+                    </div>
                     <p className="mt-2 text-sm">
                       {b?.figure ? (
                         <>
