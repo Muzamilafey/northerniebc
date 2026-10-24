@@ -181,14 +181,21 @@ export function Approvals() {
       {msg.ok && <Success>{msg.ok}</Success>}
       {msg.err && <ErrorBox error={msg.err} />}
       {list.error && <ErrorBox error={list.error} />}
-      {list.data?.items.length === 0 && <Empty title="No pending approvals" />}
+      {list.data?.items.length === 0 && <Empty title="No pending approvals">Requests that need a second person appear here.</Empty>}
       {list.data?.items.map((a) => (
         <div key={a._id} className="card">
           <p className="font-semibold">{humanize(a.kind)}</p>
           <p className="text-sm">Requested by {a.requestedBy.fullName} on {fmtDateTime(a.createdAt)}: {a.reason}</p>
-          <pre className="mt-1 overflow-x-auto rounded bg-gray-50 p-2 text-xs">{JSON.stringify(a.payload, null, 2)}</pre>
+          <dl className="mt-3 grid gap-x-6 gap-y-2 rounded-xl bg-gray-50 p-3 text-sm sm:grid-cols-2">
+            {Object.entries(a.payload).map(([k, v]) => (
+              <div key={k} className="min-w-0">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">{humanize(k.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase())}</dt>
+                <dd className="break-words text-gray-900">{v === null || v === undefined || v === '' ? '—' : typeof v === 'object' ? <code className="text-xs">{JSON.stringify(v)}</code> : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}</dd>
+              </div>
+            ))}
+          </dl>
           {a.kind === 'RESULT_CORRECTION' && <Link className="link text-sm" to={`/verify/submissions/${a.entityId}`}>Open submission</Link>}
-          <div className="mt-2 flex gap-2"><button className="btn-primary" onClick={() => decide(a._id, 'approve')}>Approve</button><button className="btn-outline" onClick={() => decide(a._id, 'reject')}>Reject</button></div>
+          <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3"><button className="btn-outline" onClick={() => decide(a._id, 'reject')}>Reject</button><button className="btn-accent" onClick={() => decide(a._id, 'approve')}>Approve</button></div>
         </div>
       ))}
     </div>

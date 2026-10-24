@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { ErrorBox, Field, Loading, PageHeader, StatusBadge, Success } from '../../components/ui';
+import { Empty, ErrorBox, Field, Loading, PageHeader, StatusBadge, Success } from '../../components/ui';
+import { Icon } from '../../components/icons';
 import { fmtDateTime, humanize } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
-import { useDialog } from '../../components/Dialog';
+import { Modal, ModalActions, useDialog } from '../../components/Dialog';
 
 interface Job { _id: string; kind: string; status: string; originalName?: string; rowCount: number; validCount: number; errorCount: number; duplicateCount: number; conflictCount: number; createdAt: string; createdBy?: { fullName: string }; reviewedBy?: { fullName: string }; reviewNote?: string; sourceId?: { name: string; documentTitle?: string }; publishSummary?: { applied: number } }
 
@@ -24,31 +25,67 @@ export default function Imports() {
     setErr(undefined);
     try {
       const r = await api<{ job: Job; missingColumns: string[] }>('/admin/imports', { form });
-      setOk(`Uploaded ${r.job.rowCount} rows.${r.missingColumns.length ? ` Missing columns: ${r.missingColumns.join(', ')}` : ''} Next: validate.`);
+      setOk(`Uploaded ${r.job.rowCount} rows.${r.missingColumns.length ? ` Missing columns: ${r.missingColumns.join(', ')}` : ''} Next: open it and validate.`);
+      setUploading(false);
       void jobs.reload();
     } catch (x) {
       setErr((x as Error).message);
     }
   }
+  const [uploading, setUploading] = useState(false);
+  const STEPS = [['Upload', 'CSV or Excel file'], ['Validate', 'Rows are checked'], ['Review', 'A second person confirms'], ['Publish', 'Valid rows go public']];
   return (
     <div className="space-y-6">
-      <PageHeader title="Data imports" subtitle="IMPORTED → VALIDATED → REVIEWED (by a second person) → PUBLISHED. Published data is never silently overwritten." />
+      <PageHeader
+        title="Data imports"
+        subtitle="Bring in registers, budgets, projects and findings from official documents. Published data is never silently overwritten."
+        actions={<button className="btn-accent" onClick={() => { setErr(undefined); setUploading(true); }}><Icon name="upload" className="h-4 w-4" /> New import</button>}
+      />
+      <ol className="grid gap-3 sm:grid-cols-4" aria-label="Import steps">
+        {STEPS.map(([t, d], i) => (
+          <li key={t} className="card flex items-center gap-3 py-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy-900 text-sm font-bold text-white" aria-hidden="true">{i + 1}</span>
+            <div><p className="text-sm font-semibold text-navy-900">{t}</p><p className="text-xs text-gray-500">{d}</p></div>
+          </li>
+        ))}
+      </ol>
       {ok && <Success>{ok}</Success>}
-      {err && <ErrorBox error={err} />}
-      <form className="card grid gap-3 sm:grid-cols-2" onSubmit={upload}>
-        <Field label="Import type"><select name="kind" className="input" value={kind} onChange={(e) => setKind(e.target.value)}>{templates && Object.keys(templates).map((k) => <option key={k} value={k}>{humanize(k)}</option>)}</select></Field>
-        {t?.requiresElection && <Field label="Election"><select name="electionId" className="input" required>{elections?.items.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}</select></Field>}
-        <Field label={`Source document${t?.requiresSource ? ' *' : ''}`} hint="Register the document in the Source registry first."><select name="sourceId" className="input" required={t?.requiresSource}><option value="">—</option>{sources?.items.map((s) => <option key={s._id} value={s._id}>{s.name}{s.documentTitle ? ` — ${s.documentTitle}` : ''}</option>)}</select></Field>
-        <Field label="File (CSV or XLSX)"><input name="file" type="file" accept=".csv,.xlsx" className="input" required /></Field>
-        {t && <p className="text-xs text-gray-600 sm:col-span-2">Expected columns: <code>{t.columns.join(', ')}</code></p>}
-        <div><button className="btn-primary">Upload</button></div>
-      </form>
-      <div className="card overflow-x-auto">
-        <table className="table">
-          <thead><tr><th>Type</th><th>File</th><th>Status</th><th>Rows</th><th>Valid / invalid / dup / conflict</th><th>Uploaded</th><th /></tr></thead>
-          <tbody>{jobs.data?.items.map((j) => <tr key={j._id}><td>{humanize(j.kind)}</td><td>{j.originalName}</td><td><StatusBadge status={j.status} /></td><td>{j.rowCount}</td><td>{j.validCount} / {j.errorCount} / {j.duplicateCount} / {j.conflictCount}</td><td className="text-xs">{fmtDateTime(j.createdAt)}<br />{j.createdBy?.fullName}</td><td><Link className="link" to={`/admin/imports/${j._id}`}>Open</Link></td></tr>)}</tbody>
-        </table>
-      </div>
+      {err && !uploading && <ErrorBox error={err} />}
+      {jobs.data?.items.length === 0 && <Empty title="No imports yet" action={<button className="btn-accent" onClick={() => setUploading(true)}><Icon name="upload" className="h-4 w-4" /> Start the first import</button>}>Register the source document first, then upload the file prepared from it.</Empty>}
+      {!!jobs.data?.items.length && (
+        <section className="card">
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Type</th><th>File</th><th>Status</th><th className="text-right">Rows</th><th>Valid · invalid · duplicate · conflict</th><th>Uploaded</th><th><span className="sr-only">Open</span></th></tr></thead>
+              <tbody>{jobs.data.items.map((j) => (
+                <tr key={j._id}>
+                  <td className="font-medium">{humanize(j.kind)}</td>
+                  <td className="max-w-[14rem] truncate text-gray-600" title={j.originalName}>{j.originalName}</td>
+                  <td><StatusBadge status={j.status} /></td>
+                  <td className="text-right tabular-nums">{j.rowCount}</td>
+                  <td className="whitespace-nowrap tabular-nums"><span className="text-green-700">{j.validCount}</span> · <span className="text-red-700">{j.errorCount}</span> · <span className="text-gray-600">{j.duplicateCount}</span> · <span className="text-amber-700">{j.conflictCount}</span></td>
+                  <td className="whitespace-nowrap text-xs text-gray-600">{fmtDateTime(j.createdAt)}<br />{j.createdBy?.fullName}</td>
+                  <td className="text-right"><Link className="btn-outline btn-sm" to={`/admin/imports/${j._id}`}>Open</Link></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {uploading && (
+        <Modal title="New import" description="Choose what you are importing and the official document it comes from." icon={false} size="lg" onClose={() => setUploading(false)}>
+          <form className="grid gap-4 sm:grid-cols-2" onSubmit={async (e) => { await upload(e); }}>
+            <Field label="Import type"><select name="kind" className="input" value={kind} onChange={(e) => setKind(e.target.value)}>{templates && Object.keys(templates).map((k) => <option key={k} value={k}>{humanize(k)}</option>)}</select></Field>
+            {t?.requiresElection && <Field label="Election"><select name="electionId" className="input" required>{elections?.items.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}</select></Field>}
+            <Field label={`Source document${t?.requiresSource ? ' (required)' : ''}`} hint="Not listed? Register it in the Source registry first."><select name="sourceId" className="input" required={t?.requiresSource}><option value="">—</option>{sources?.items.map((s) => <option key={s._id} value={s._id}>{s.name}{s.documentTitle ? ` — ${s.documentTitle}` : ''}</option>)}</select></Field>
+            <Field label="File (CSV or XLSX)"><input name="file" type="file" accept=".csv,.xlsx" className="input" required /></Field>
+            {t && <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-600 sm:col-span-2"><p className="mb-1 font-semibold text-gray-700">Expected columns</p><code className="break-words">{t.columns.join(', ')}</code></div>}
+            {err && <div className="sm:col-span-2"><ErrorBox error={err} /></div>}
+            <div className="sm:col-span-2"><ModalActions onCancel={() => setUploading(false)} confirmLabel="Upload file" tone="accent" /></div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

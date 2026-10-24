@@ -137,7 +137,7 @@ await step('an unapproved agent cannot count until a different administrator app
   await admin.getByLabel('Accreditation reference').fill('DEMO-ACC-2');
   await admin.getByLabel('Note (what you checked)').fill('Checked ID and letter in person');
   await admin.getByRole('button', { name: 'Approve agent' }).click();
-  await admin.getByRole('cell', { name: 'Approved', exact: true }).first().waitFor();
+  await admin.getByText(/was approved and can now count/).waitFor();
   await admin.screenshot({ path: `${SHOTS}/06a-agent-approval.png`, fullPage: true });
   await p.reload();
   await p.getByText('DEMO-PS').first().waitFor({ timeout: 5000 }).catch(() => undefined);
@@ -171,7 +171,7 @@ await step('admin configures KRA in Settings; an agent self-registers with ID + 
     await kraSec.getByRole('button', { name: 'Test connection' }).click();
     await kraSec.getByText('Connection succeeded').waitFor();
     assert.equal(await kraSec.getByLabel('Consumer secret').inputValue(), '');
-    const regSec = admin.locator('section', { has: admin.getByRole('heading', { name: 'Agent self-registration' }) });
+    const regSec = admin.locator('section', { has: admin.getByRole('heading', { name: 'Agents: sign-in and self-registration' }) });
     await regSec.getByLabel('Open agent self-registration').selectOption('true');
     await regSec.getByRole('button', { name: /Save/ }).click();
     await regSec.getByText(/Saved:/).waitFor();

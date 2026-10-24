@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { LogoEditor } from '../../../components/LogoEditor';
-import { Empty, ErrorBox, Field, PageHeader, PublicImage, Success } from '../../../components/ui';
+import { Empty, ErrorBox, Field, PageHeader, PublicImage, Segmented, Success } from '../../../components/ui';
+import { Modal, ModalActions } from '../../../components/Dialog';
+import { Icon } from '../../../components/icons';
 import { api } from '../../../lib/api';
 import { uploadImage } from '../../../lib/upload';
 import { useApi } from '../../../lib/useApi';
@@ -8,6 +10,7 @@ import { CatalogTabs, type Party } from './shared';
 
 export default function Parties() {
   const list = useApi<{ items: Party[] }>('/admin/parties');
+  const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -18,7 +21,7 @@ export default function Parties() {
       const logo = f.get('logo') as File | null;
       const logoFileId = logo && logo.size > 0 ? await uploadImage('PARTY_LOGO', logo) : undefined;
       await api('/admin/parties', { body: { name: f.get('name'), abbreviation: f.get('abbreviation'), logoFileId, sourceReference: f.get('sourceReference') || undefined } });
-      form.reset();
+      setAdding(false);
       setMsg({ ok: 'Party added.' });
       void list.reload();
     } catch (x) {
@@ -33,19 +36,23 @@ export default function Parties() {
   const shown = (list.data?.items ?? []).filter((p) => !q || `${p.name} ${p.abbreviation}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="space-y-4">
-      <PageHeader title="Parties" subtitle="Registered political parties and their logos. Logos appear next to every aspirant of the party." />
+      <PageHeader title="Parties" subtitle="Registered political parties and their logos. Logos appear next to every aspirant of the party." actions={<button className="btn-accent" onClick={() => { setMsg({}); setAdding(true); }}><Icon name="plus" className="h-4 w-4" /> Add one party</button>} />
       <CatalogTabs />
       <RegisteredPartiesLoader onImported={() => void list.reload()} />
-      <form className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={add}>
-        <h2 className="font-bold sm:col-span-2 lg:col-span-4">Add one party</h2>
-        <Field label="Party name"><input name="name" className="input" required minLength={2} /></Field>
-        <Field label="Abbreviation"><input name="abbreviation" className="input" required maxLength={20} /></Field>
-        <Field label="Logo (JPEG/PNG/WebP, max 2 MB)"><input name="logo" type="file" accept="image/jpeg,image/png,image/webp" className="input" /></Field>
-        <Field label="Source (e.g. Registrar of Political Parties)"><input name="sourceReference" className="input" /></Field>
-        <div><button className="btn-primary">Add party</button></div>
-      </form>
+      {adding && (
+        <Modal title="Add a party" icon={false} onClose={() => setAdding(false)}>
+          <form className="grid gap-4 sm:grid-cols-2" onSubmit={add}>
+            <div className="sm:col-span-2"><Field label="Party name"><input name="name" className="input" required minLength={2} autoFocus /></Field></div>
+            <Field label="Abbreviation"><input name="abbreviation" className="input uppercase" required maxLength={20} /></Field>
+            <Field label="Source" hint="e.g. ORPP register, month and year"><input name="sourceReference" className="input" /></Field>
+            <div className="sm:col-span-2"><Field label="Logo (optional)" hint="JPEG, PNG or WebP, up to 2 MB."><input name="logo" type="file" accept="image/jpeg,image/png,image/webp" className="input" /></Field></div>
+            {msg.err && <div className="sm:col-span-2"><ErrorBox error={msg.err} /></div>}
+            <div className="sm:col-span-2"><ModalActions onCancel={() => setAdding(false)} confirmLabel="Add party" tone="accent" /></div>
+          </form>
+        </Modal>
+      )}
       {msg.ok && <Success>{msg.ok}</Success>}
-      {msg.err && <ErrorBox error={msg.err} />}
+      {msg.err && !adding && <ErrorBox error={msg.err} />}
       {!!list.data?.items.length && (
         <div className="flex flex-wrap items-center gap-3">
           <input className="input max-w-xs" placeholder="Search parties" aria-label="Search parties" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -136,13 +143,7 @@ function RegisteredPartiesLoader({ onImported }: { onImported: () => void }) {
       </div>
       {open && (
         <>
-          <div className="flex flex-wrap gap-2" role="tablist">
-            {(['url', 'pdf', 'text'] as const).map((m) => (
-              <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'btn-primary' : 'btn-outline'} onClick={() => setMode(m)}>
-                {m === 'url' ? 'ORPP link' : m === 'pdf' ? 'Upload ORPP PDF' : 'Paste list'}
-              </button>
-            ))}
-          </div>
+          <Segmented label="How to load the list" value={mode} onChange={setMode} options={[{ value: 'url', label: 'ORPP link' }, { value: 'pdf', label: 'Upload ORPP PDF' }, { value: 'text', label: 'Paste list' }]} />
           {mode === 'url' && (
             <Field label="Link to the ORPP list (PDF or page on orpp.or.ke)" hint={`Open ${ORPP_PAGE}, copy the link to the latest "Fully Registered Political Parties" list and paste it here. Read by AI.`}>
               <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://orpp.or.ke/wp-content/uploads/…/Fully-Registered-Parties….pdf" />

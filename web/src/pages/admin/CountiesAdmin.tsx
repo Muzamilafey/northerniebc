@@ -4,13 +4,15 @@ import { uploadImage } from '../../lib/upload';
 import { ErrorBox, Field, PageHeader, PublicImage, Success } from '../../components/ui';
 import { useApi } from '../../lib/useApi';
 import { LogoEditor } from '../../components/LogoEditor';
-import { useDialog } from '../../components/Dialog';
+import { Icon } from '../../components/icons';
+import { Modal, ModalActions, useDialog } from '../../components/Dialog';
 
 interface County { _id: string; code: string; name: string; region?: string; logoFileId?: string }
 
 export default function CountiesAdmin() {
   const dialog = useDialog();
   const list = useApi<{ items: County[] }>('/public/counties');
+  const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -21,7 +23,7 @@ export default function CountiesAdmin() {
       const logo = f.get('logo') as File | null;
       const logoFileId = logo && logo.size > 0 ? await uploadImage('COUNTY_LOGO', logo) : undefined;
       await api('/admin/counties', { body: { code: String(f.get('code')).padStart(3, '0'), name: f.get('name'), region: f.get('region') || undefined, logoFileId } });
-      form.reset();
+      setAdding(false);
       setMsg({ ok: 'County added.' });
       void list.reload();
     } catch (x) {
@@ -42,27 +44,37 @@ export default function CountiesAdmin() {
   };
   return (
     <div className="space-y-4">
-      <PageHeader title="Counties" subtitle="Counties, constituencies and wards covered by the platform. Use official IEBC codes (e.g. Garissa 007). Codes cannot be changed after creation." />
-      <form className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-5" onSubmit={add}>
-        <h2 className="font-bold sm:col-span-2 lg:col-span-5">Add county</h2>
-        <Field label="County code"><input name="code" className="input" required pattern="\d{1,3}" placeholder="e.g. 012" /></Field>
-        <Field label="Name"><input name="name" className="input" required /></Field>
-        <Field label="Region (optional)"><input name="region" className="input" /></Field>
-        <Field label="Logo (JPEG/PNG/WebP, max 2 MB)"><input name="logo" type="file" accept="image/jpeg,image/png,image/webp" className="input" /></Field>
-        <div className="flex items-end"><button className="btn-primary">Add county</button></div>
-      </form>
+      <PageHeader
+        title="Counties & areas"
+        subtitle="Counties, constituencies and wards covered by the platform, with their official IEBC codes. Codes cannot be changed after creation."
+        actions={<button className="btn-accent" onClick={() => { setMsg({}); setAdding(true); }}><Icon name="plus" className="h-4 w-4" /> Add county</button>}
+      />
+      {adding && (
+        <Modal title="Add county" description="Use the official county code, e.g. Garissa 007." icon={false} onClose={() => setAdding(false)}>
+          <form className="grid gap-4 sm:grid-cols-2" onSubmit={add}>
+            <Field label="County code"><input name="code" className="input" required pattern="\d{1,3}" placeholder="e.g. 012" autoFocus /></Field>
+            <Field label="Name"><input name="name" className="input" required /></Field>
+            <div className="sm:col-span-2"><Field label="Region (optional)"><input name="region" className="input" placeholder="e.g. North Eastern" /></Field></div>
+            <div className="sm:col-span-2"><Field label="Logo (optional)" hint="JPEG, PNG or WebP, up to 2 MB."><input name="logo" type="file" accept="image/jpeg,image/png,image/webp" className="input" /></Field></div>
+            {msg.err && <div className="sm:col-span-2"><ErrorBox error={msg.err} /></div>}
+            <div className="sm:col-span-2"><ModalActions onCancel={() => setAdding(false)} confirmLabel="Add county" tone="accent" /></div>
+          </form>
+        </Modal>
+      )}
       {msg.ok && <Success>{msg.ok}</Success>}
-      {msg.err && <ErrorBox error={msg.err} />}
+      {msg.err && !adding && <ErrorBox error={msg.err} />}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {list.data?.items.map((c) => (
-          <div key={c._id} className="card flex items-center gap-3">
+          <div key={c._id} className="card flex items-start gap-4">
             <PublicImage fileId={c.logoFileId} alt={`${c.name} County logo`} size={64} fallback={c.name} />
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">{c.name}</p>
+              <p className="text-lg font-bold text-navy-900">{c.name}</p>
               <p className="text-xs text-gray-500">Code {c.code}{c.region ? ` · ${c.region}` : ''}</p>
+              <div className="mt-2 flex flex-wrap items-start gap-2">
               <LogoEditor fileId={c.logoFileId} purpose="COUNTY_LOGO" label={`${c.name} County logo`} onSave={(id) => setLogo(c, id)} />
               <div className="mt-1 flex gap-3 text-xs">
-                <button className="link" onClick={async () => { const region = await dialog.prompt({ title: `Region for ${c.name} County`, label: 'Region', defaultValue: c.region ?? '', required: false, maxLength: 100, placeholder: 'e.g. North Eastern' }); if (region !== null) void update(c, { region }); }}>Edit region</button>
+                <button className="btn-ghost btn-sm" onClick={async () => { const region = await dialog.prompt({ title: `Region for ${c.name} County`, label: 'Region', defaultValue: c.region ?? '', required: false, maxLength: 100, placeholder: 'e.g. North Eastern' }); if (region !== null) void update(c, { region }); }}>Edit region</button>
+              </div>
               </div>
             </div>
           </div>

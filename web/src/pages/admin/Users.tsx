@@ -65,6 +65,7 @@ export default function Users() {
   const creatable: Role[] = user?.role === 'SUPER_ADMIN' ? Object.keys(ROLE_LABELS) as Role[] : user?.role === 'REGIONAL_ADMIN' ? ['COUNTY_ADMIN', 'CONSTITUENCY_SUPERVISOR', 'VERIFICATION_OFFICER', 'FINANCE_OFFICER', 'AGENT'] : user?.role === 'COUNTY_ADMIN' ? ['CONSTITUENCY_SUPERVISOR', 'AGENT'] : ['AGENT'];
 
   const [creating, setCreating] = useState(false);
+  const [done, setDone] = useState<string>();
   const [search, setSearch] = useState('');
   const statusBadge: Record<string, string> = { ACTIVE: 'bg-green-100 text-green-800', SUSPENDED: 'bg-amber-100 text-amber-900', REVOKED: 'bg-gray-200 text-gray-600' };
   const vetBadge: Record<string, [string, string]> = { APPROVED: ['Approved', 'bg-green-100 text-green-800'], REJECTED: ['Rejected', 'bg-red-100 text-red-800'], PENDING: ['Awaiting approval', 'bg-amber-100 text-amber-900'] };
@@ -78,6 +79,7 @@ export default function Users() {
         actions={<button className="btn-accent" onClick={() => setCreating(true)}><Icon name="plus" className="h-4 w-4" /> New account</button>}
       />
       {err && <ErrorBox error={err} />}
+      {done && <Success>{done}</Success>}
 
       <section className="card">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -185,7 +187,7 @@ export default function Users() {
       )}
       {vetting && (
         <Modal title={`Approve agent ${vetting.fullName}`} description="Approve only after checking in person or by video. The administrator who created this account cannot approve it." icon={false} size="lg" onClose={() => setVetting(null)}>
-          <VetAgent agent={vetting} onClose={(m) => { setVetting(null); void list.reload(); if (m?.err) setErr(m.err); }} />
+          <VetAgent agent={vetting} onClose={(m) => { const who = vetting.fullName; setVetting(null); void list.reload(); if (m?.err) setErr(m.err); else if (m?.decision) { setErr(undefined); setDone(`${who} was ${m.decision === 'APPROVE' ? 'approved and can now count' : 'rejected'}.`); } }} />
         </Modal>
       )}
     </div>
@@ -305,14 +307,14 @@ function AssignAgent({ agent, onClose }: { agent: UserRow; onClose: () => void }
 }
 
 /** Agent vetting: a different administrator confirms identity, phone and accreditation. */
-function VetAgent({ agent, onClose }: { agent: UserRow; onClose: (m?: { err?: string }) => void }) {
+function VetAgent({ agent, onClose }: { agent: UserRow; onClose: (m?: { err?: string; decision?: 'APPROVE' | 'REJECT' }) => void }) {
   const ident = useApi<{ fullName: string; source: string; locked: boolean; nationalId: string | null; kraPin: string | null; verifiedAt: string | null; email: string; emailVerified: boolean; phoneMasked: string | null }>(`/admin/users/${agent._id}/identity`);
   const [form, setForm] = useState({ identityChecked: false, phoneChecked: false, accreditationChecked: false, accreditationReference: '', note: '' });
   const [err, setErr] = useState<string>();
   const decide = async (decision: 'APPROVE' | 'REJECT') => {
     try {
       await api(`/admin/users/${agent._id}/vetting`, { body: { decision, ...form, accreditationReference: form.accreditationReference || undefined } });
-      onClose({});
+      onClose({ decision });
     } catch (e) {
       setErr((e as Error).message);
     }

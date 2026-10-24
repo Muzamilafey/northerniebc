@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useDialog } from '../../../components/Dialog';
+import { Menu } from '../../../components/Menu';
 import { Empty, ErrorBox, Field, Loading, PageHeader, PublicImage, Success } from '../../../components/ui';
 import { api } from '../../../lib/api';
 import { POSITION_LABELS } from '../../../lib/format';
@@ -166,31 +167,34 @@ export default function AspirantList() {
             <h2 id={`pos-${g.position}`} className="mb-3 flex items-center gap-2 text-lg font-bold text-navy-900">
               {POSITION_LABELS[g.position]} <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{g.items.length}</span>
             </h2>
-            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
               {g.items.map((c) => (
                 <li key={c._id} className={`card flex flex-col gap-3 transition hover:shadow-md ${c.active ? '' : 'opacity-60'}`}>
                   <div className="flex items-start gap-3">
-                    <PublicImage fileId={c.photoFileId} alt={c.fullName} size={64} rounded="rounded-full" />
+                    <PublicImage fileId={c.photoFileId} alt={c.fullName} size={56} rounded="rounded-full" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-navy-900" title={c.fullName}>{c.fullName}</p>
-                      <p className="mt-0.5 flex items-center gap-1.5 text-sm text-gray-700">
+                      <p className="break-words font-semibold leading-snug text-navy-900">{c.fullName}</p>
+                      <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-700">
                         <PublicImage fileId={c.partyId?.logoFileId} alt="" fallback={c.partyAbbreviation ?? 'IND'} size={20} />
-                        <span className="truncate" title={c.party ?? 'Independent'}>{c.partyAbbreviation ?? (c.independent ? 'Independent' : c.party ?? '—')}</span>
+                        <span className="truncate" title={c.party ?? 'Independent'}>{c.independent ? 'Independent' : c.party ?? '—'}</span>
                       </p>
-                      <p className="mt-0.5 truncate text-xs text-gray-500">{c.areaName}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${c.active ? 'bg-teal-600/10 text-teal-700' : 'bg-gray-100 text-gray-600'}`}>{c.active ? 'On ballot' : 'Removed'}</span>
-                      {c.ballotOrder != null && <span className="text-xs text-gray-500">No. {c.ballotOrder}</span>}
+                      <p className="mt-0.5 truncate text-xs text-gray-500" title={c.areaName ?? ''}>{c.areaName}</p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 text-xs">
-                    <button className="btn-outline px-2.5 py-1 text-xs" onClick={() => void edit(c)}>Edit</button>
-                    <label className="btn-outline cursor-pointer px-2.5 py-1 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`badge ${c.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{c.active ? 'On ballot' : 'Removed'}</span>
+                    {c.ballotOrder != null && <span className="badge bg-gray-100 text-gray-700">Ballot no. {c.ballotOrder}</span>}
+                    {!c.photoFileId && <span className="badge bg-amber-50 text-amber-800">No photo</span>}
+                  </div>
+                  <div className="mt-auto flex items-center gap-2 border-t border-gray-100 pt-3">
+                    <button className="btn-outline btn-sm" onClick={() => void edit(c)}>Edit</button>
+                    <label className="btn-outline btn-sm cursor-pointer">
                       {c.photoFileId ? 'Change photo' : 'Add photo'}
                       <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => { void changePhoto(c, e.target.files?.[0]); e.target.value = ''; }} />
                     </label>
-                    <button className={`ml-auto px-2.5 py-1 text-xs font-semibold ${c.active ? 'text-red-700 hover:underline' : 'text-navy-700 hover:underline'}`} onClick={() => void toggle(c)}>{c.active ? 'Remove from ballot' : 'Restore'}</button>
+                    <div className="ml-auto">
+                      <Menu label={`More actions for ${c.fullName}`} items={[{ label: c.active ? 'Remove from ballot' : 'Restore to ballot', danger: c.active, onSelect: () => void toggle(c) }]} />
+                    </div>
                   </div>
                 </li>
               ))}
