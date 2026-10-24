@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, seedElection, setupDb, teardownDb } from './helpers.js';
-import { Candidate } from '../src/models/index.js';
+import { Candidate, Ward } from '../src/models/index.js';
 
 let app: Express;
 let fx: Awaited<ReturnType<typeof seedElection>>;
@@ -96,5 +96,44 @@ describe('parties and aspirants', () => {
     expect((await request(app).post('/api/admin/parties').set(agent.auth).send({ name: 'X Party', abbreviation: 'X' })).status).toBe(403);
     const ca = await as(app, 'COUNTY_ADMIN', { scope: { countyIds: [String(fx.county._id)] } });
     expect((await request(app).post('/api/admin/candidates').set(ca.auth).send({ electionId: String(fx.election._id), position: 'GOVERNOR', fullName: 'Nope', scopeRefId: String(fx.county._id) })).status).toBe(403);
+  });
+});
+
+describe('constituencies and wards', () => {
+  it('loads the official IEBC list once, idempotently, with its source', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    const eid = String(fx.election._id);
+    const first = await request(app).post(`/api/admin/elections/${eid}/areas/load-official`).set(sa.auth);
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ constituenciesAdded: 24, wardsAdded: 120, conflicts: [] });
+    const again = await request(app).post(`/api/admin/elections/${eid}/areas/load-official`).set(sa.auth);
+    expect(again.body).toMatchObject({ constituenciesAdded: 0, wardsAdded: 0, alreadyPresent: 144 });
+
+    const cons = await request(app).get(`/api/public/elections/${eid}/constituencies`).query({ countyId: String(fx.county._id) });
+    const township = cons.body.items.find((c: { code: string }) => c.code === '027');
+    expect(township.name).toBe('Garissa Township');
+    const wards = await request(app).get(`/api/public/elections/${eid}/wards`).query({ constituencyId: township._id });
+    expect(wards.body.items.map((w: { code: string }) => w.code).sort()).toEqual(['0131', '0132', '0133', '0134']);
+    const ward = await Ward.findOne({ code: '0131' }).populate('sourceId').lean();
+    expect((ward!.sourceId as unknown as { url: string }).url).toContain('iebc.or.ke');
+
+    const regional = await as(app, 'REGIONAL_ADMIN');
+    expect((await request(app).post(`/api/admin/elections/${eid}/areas/load-official`).set(regional.auth)).status).toBe(403);
+  });
+
+  it('adds a constituency and ward by hand; codes are unique, names corrected only with a reason', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    const eid = String(fx.election._id);
+    const c = await request(app).post(`/api/admin/elections/${eid}/constituencies`).set(sa.auth).send({ countyId: String(fx.county._id), code: '901', name: 'New Constituency' });
+    expect(c.status).toBe(201);
+    expect((await request(app).post(`/api/admin/elections/${eid}/constituencies`).set(sa.auth).send({ countyId: String(fx.county._id), code: '901', name: 'Dup' })).status).toBe(409);
+    expect((await request(app).post(`/api/admin/elections/${eid}/constituencies`).set(sa.auth).send({ countyId: String(fx.county._id), code: 'AB', name: 'Bad' })).status).toBe(400);
+    const w = await request(app).post(`/api/admin/elections/${eid}/wards`).set(sa.auth).send({ constituencyId: c.body.constituency._id, code: '9001', name: 'New Ward' });
+    expect(w.status).toBe(201);
+    expect(w.body.ward.countyId).toBe(String(fx.county._id));
+    expect((await request(app).patch(`/api/admin/wards/${w.body.ward._id}`).set(sa.auth).send({ name: 'New Ward B' })).status).toBe(400);
+    expect((await request(app).patch(`/api/admin/wards/${w.body.ward._id}`).set(sa.auth).send({ name: 'New Ward B', reason: 'Spelling per gazette' })).status).toBe(200);
+    const areas = await request(app).get(`/api/admin/elections/${eid}/areas`).set(sa.auth);
+    expect(areas.body.items.find((x: { code: string }) => x.code === '901').wards[0].name).toBe('New Ward B');
   });
 });

@@ -5,10 +5,12 @@ import { recordAudit } from '../../lib/audit.js';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { parse } from '../../lib/http.js';
 import { requirePermission } from '../../middleware/auth.js';
+import { AREAS, AREAS_SOURCE } from '../../data/areas.js';
 import {
   Candidate,
   Constituency,
   County,
+  DataSource,
   Election,
   FORM_TEMPLATES,
   Party,
@@ -287,6 +289,95 @@ export function electionsAdminRouter() {
     });
     res.json({ county: c });
   });
+
+  // ---- Constituencies & wards (per election) ----
+  r.get('/elections/:id/areas', requirePermission('counties.manage', 'candidates.manage'), async (req, res) => {
+    const electionId = String(req.params.id);
+    const [cons, wards] = await Promise.all([
+      Constituency.find({ electionId }).sort({ code: 1 }).select('code name countyId').lean(),
+      Ward.find({ electionId }).sort({ code: 1 }).select('code name constituencyId').lean()
+    ]);
+    res.json({ items: cons.map((c) => ({ ...c, wards: wards.filter((w) => String(w.constituencyId) === String(c._id)) })) });
+  });
+
+  r.post('/elections/:id/areas/load-official', requirePermission('counties.manage'), async (req, res) => {
+    const election = await Election.findById(String(req.params.id)).lean();
+    if (!election) throw notFound('Election not found');
+    const counties = await County.find({ code: { $in: Object.keys(AREAS) } }).lean();
+    const summary = { constituenciesAdded: 0, wardsAdded: 0, alreadyPresent: 0, conflicts: [] as string[] };
+    await withTransaction(async (s) => {
+      const source = await DataSource.findOneAndUpdate(
+        { url: AREAS_SOURCE.url },
+        { $setOnInsert: { ...AREAS_SOURCE, retrievedAt: new Date(), verificationStatus: 'REVIEWED', notes: 'Constituency and county assembly ward codes for the five covered counties.' } },
+        { upsert: true, new: true, session: s }
+      );
+      for (const county of counties) {
+        for (const a of AREAS[county.code] ?? []) {
+          let cons = await Constituency.findOne({ electionId: election._id, code: a.code }).session(s);
+          if (cons && String(cons.countyId) !== String(county._id)) { summary.conflicts.push(`Constituency ${a.code} exists under another county`); continue; }
+          if (cons) summary.alreadyPresent++;
+          else {
+            [cons] = await Constituency.create([{ electionId: election._id, countyId: county._id, code: a.code, name: a.name, sourceId: source!._id }], { session: s });
+            summary.constituenciesAdded++;
+          }
+          for (const [code, name] of a.wards) {
+            const w = await Ward.findOne({ electionId: election._id, code }).session(s).lean();
+            if (w && String(w.constituencyId) !== String(cons!._id)) { summary.conflicts.push(`Ward ${code} exists under another constituency`); continue; }
+            if (w) { summary.alreadyPresent++; continue; }
+            await Ward.create([{ electionId: election._id, countyId: county._id, constituencyId: cons!._id, code, name, sourceId: source!._id }], { session: s });
+            summary.wardsAdded++;
+          }
+        }
+      }
+      await recordAudit(s, { actor: actor(req), action: 'areas.loaded', entityType: 'Election', entityId: String(election._id), after: { source: AREAS_SOURCE.url, ...summary } });
+    });
+    res.json(summary);
+  });
+
+  const areaName = z.string().trim().min(2).max(100);
+  r.post('/elections/:id/constituencies', requirePermission('counties.manage'), async (req, res) => {
+    const body = parse(z.object({ countyId: objectId, code: z.string().trim().regex(/^\d{3}$/, 'Constituency code is three digits, e.g. 027'), name: areaName }), req.body);
+    const electionId = String(req.params.id);
+    if (!(await Election.exists({ _id: electionId }))) throw notFound('Election not found');
+    if (!(await County.exists({ _id: body.countyId }))) throw badRequest('Unknown county');
+    if (await Constituency.exists({ electionId, code: body.code })) throw conflict('A constituency with this code already exists in this election');
+    const c = await withTransaction(async (s) => {
+      const [doc] = await Constituency.create([{ electionId, ...body }], { session: s });
+      await recordAudit(s, { actor: actor(req), action: 'constituency.created', entityType: 'Constituency', entityId: String(doc!._id), after: body });
+      return doc!;
+    });
+    res.status(201).json({ constituency: c });
+  });
+
+  r.post('/elections/:id/wards', requirePermission('counties.manage'), async (req, res) => {
+    const body = parse(z.object({ constituencyId: objectId, code: z.string().trim().regex(/^\d{4}$/, 'Ward code is four digits, e.g. 0131'), name: areaName }), req.body);
+    const electionId = String(req.params.id);
+    const cons = await Constituency.findOne({ _id: body.constituencyId, electionId }).lean();
+    if (!cons) throw badRequest('Unknown constituency for this election');
+    if (await Ward.exists({ electionId, code: body.code })) throw conflict('A ward with this code already exists in this election');
+    const w = await withTransaction(async (s) => {
+      const [doc] = await Ward.create([{ electionId, countyId: cons.countyId, ...body }], { session: s });
+      await recordAudit(s, { actor: actor(req), action: 'ward.created', entityType: 'Ward', entityId: String(doc!._id), after: body });
+      return doc!;
+    });
+    res.status(201).json({ ward: w });
+  });
+
+  // Codes are fixed (stations and results reference them); only a spelling can be corrected, with a reason.
+  for (const [path, Model, entityType] of [['constituencies', Constituency, 'Constituency'], ['wards', Ward, 'Ward']] as const) {
+    r.patch(`/${path}/:id`, requirePermission('counties.manage'), async (req, res) => {
+      const body = parse(z.object({ name: areaName, reason: z.string().trim().min(5).max(500) }), req.body);
+      const doc = await (Model as typeof Ward).findById(String(req.params.id));
+      if (!doc) throw notFound();
+      const before = { name: doc.name };
+      await withTransaction(async (s) => {
+        doc.name = body.name;
+        await doc.save({ session: s });
+        await recordAudit(s, { actor: actor(req), action: `${entityType.toLowerCase()}.renamed`, entityType, entityId: String(doc._id), before, after: { name: body.name }, meta: { reason: body.reason } });
+      });
+      res.json({ item: doc });
+    });
+  }
 
   return r;
 }

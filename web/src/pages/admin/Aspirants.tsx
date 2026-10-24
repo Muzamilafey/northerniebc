@@ -38,9 +38,11 @@ function AspirantsTab() {
   const [constituencyId, setConstituencyId] = useState('');
   const [wardId, setWardId] = useState('');
   const { data: counties } = useApi<{ items: Area[] }>('/public/counties');
-  const { data: consts } = useApi<{ items: Area[] }>(eid && countyId && (scope === 'CONSTITUENCY' || scope === 'WARD') ? `/public/elections/${eid}/constituencies` : null, { countyId });
-  const { data: wards } = useApi<{ items: Area[] }>(eid && constituencyId && scope === 'WARD' ? `/public/elections/${eid}/wards` : null, { constituencyId });
+  const { data: consts } = useApi<{ items: Area[] }>(eid && countyId ? `/public/elections/${eid}/constituencies` : null, { countyId });
+  const { data: wards } = useApi<{ items: Area[] }>(eid && constituencyId ? `/public/elections/${eid}/wards` : null, { constituencyId });
+  const areaName = (items: Area[] | undefined, id: string) => items?.find((a) => a._id === id)?.name ?? '';
   const scopeRefId = scope === 'COUNTY' ? countyId : scope === 'CONSTITUENCY' ? constituencyId : scope === 'WARD' ? wardId : '';
+  const where = !scopeRefId ? '' : scope === 'COUNTY' ? `${areaName(counties?.items, countyId)} County` : scope === 'CONSTITUENCY' ? `${areaName(consts?.items, constituencyId)} Constituency` : scope === 'WARD' ? `${areaName(wards?.items, wardId)} Ward` : '';
   const list = useApi<{ items: Candidate[] }>(eid && pos ? '/admin/candidates' : null, { electionId: eid, position: pos, scopeRefId: scopeRefId || undefined });
   const { data: parties } = useApi<{ items: Party[] }>('/admin/parties');
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
@@ -106,17 +108,19 @@ function AspirantsTab() {
     <div className="space-y-4">
       <div className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Field label="Election"><select className="input" value={eid} onChange={(e) => { setElectionId(e.target.value); setPosition(''); }}>{el.items.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}</select></Field>
+        <Field label="County"><select className="input" value={countyId} onChange={(e) => { setCountyId(e.target.value); setConstituencyId(''); setWardId(''); }}><option value="">Choose county…</option>{counties?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
+        <Field label="Constituency"><select className="input" value={constituencyId} disabled={!countyId} onChange={(e) => { setConstituencyId(e.target.value); setWardId(''); }}><option value="">{countyId ? 'Choose constituency…' : 'Choose a county first'}</option>{consts?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
+        <Field label="Ward"><select className="input" value={wardId} disabled={!constituencyId} onChange={(e) => setWardId(e.target.value)}><option value="">{constituencyId ? 'Choose ward…' : 'Choose a constituency first'}</option>{wards?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
         <Field label="Position"><select className="input" value={pos} onChange={(e) => setPosition(e.target.value)}>{positions.length === 0 && <option value="">No positions enabled</option>}{positions.map((p) => <option key={p} value={p}>{POSITION_LABELS[p]}</option>)}</select></Field>
-        {scope && scope !== 'NATIONAL' && <Field label="County"><select className="input" value={countyId} onChange={(e) => { setCountyId(e.target.value); setConstituencyId(''); setWardId(''); }}><option value="">Choose…</option>{counties?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>}
-        {(scope === 'CONSTITUENCY' || scope === 'WARD') && <Field label="Constituency"><select className="input" value={constituencyId} disabled={!countyId} onChange={(e) => { setConstituencyId(e.target.value); setWardId(''); }}><option value="">Choose…</option>{consts?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>}
-        {scope === 'WARD' && <Field label="Ward"><select className="input" value={wardId} disabled={!constituencyId} onChange={(e) => setWardId(e.target.value)}><option value="">Choose…</option>{wards?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>}
+        <p className="text-xs text-gray-500 sm:col-span-2 lg:col-span-5">President is national. Governor, Senator and Woman Representative are chosen per county, Member of Parliament per constituency, and MCA per ward.</p>
       </div>
       {positions.length === 0 && <p className="text-sm text-amber-800">Enable positions for this election under Election setup first.</p>}
-      {(scope === 'CONSTITUENCY' || scope === 'WARD') && countyId && consts?.items.length === 0 && <p className="text-sm text-amber-800">No constituencies yet for this election. Import the polling-station register under Data imports first.</p>}
+      {(scope === 'CONSTITUENCY' || scope === 'WARD') && countyId && consts?.items.length === 0 && <p className="text-sm text-amber-800">No constituencies yet for this election. A super admin can load the official IEBC list under Counties → Constituencies &amp; wards.</p>}
+      {scope && scope !== 'NATIONAL' && !scopeRefId && <p className="text-sm text-amber-800">{POSITION_LABELS[pos]} aspirants contest per {scope.toLowerCase()} — choose the {scope.toLowerCase()} above to add or list them.</p>}
 
       {pos && (
         <form className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={add}>
-          <h2 className="font-bold sm:col-span-2 lg:col-span-3">Add aspirant — {POSITION_LABELS[pos]}{scope === 'NATIONAL' ? ' (national)' : ''}</h2>
+          <h2 className="font-bold sm:col-span-2 lg:col-span-3">Add aspirant — {POSITION_LABELS[pos]}{scope === 'NATIONAL' ? ' (national)' : where ? `, ${where}` : ''}</h2>
           <Field label="Full name (as on the ballot)"><input name="fullName" className="input" required minLength={3} /></Field>
           <Field label="Party">
             <select name="partyId" className="input" defaultValue="">

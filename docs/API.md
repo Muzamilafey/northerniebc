@@ -60,6 +60,16 @@ Imports: `GET /imports/templates`, `GET/POST /imports`, `GET /imports/:id`, `GET
 Donations: `GET /donations/summary`, `GET /donations`, `GET /donations/:id`, `POST /donations/:id/{requery,reconcile,refunds}`, `POST/PATCH /donations/goals`, `GET /donations/expenditure/list`, `POST /donations/expenditure`, `POST /donations/expenditure/:id/publish`, `POST /donations/reports`.
 Audit log: `GET /audit-log`, `GET /audit-log/verify`. Site: `POST /updates`.
 
+### Catalogue (admin)
+- `GET /admin/candidates?electionId&position&scopeRefId`, `POST /admin/candidates`, `PATCH /admin/candidates/:id` (needs `reason`) — `candidates.manage`.
+- `GET|POST /admin/parties`, `PATCH /admin/parties/:id` — `candidates.manage`. Public: `GET /public/parties`.
+- `POST /admin/counties`, `PATCH /admin/counties/:id` (code immutable) — `counties.manage` (SUPER_ADMIN).
+- `GET /admin/elections/:id/areas` — constituencies with their wards.
+- `POST /admin/elections/:id/areas/load-official` — idempotently loads the IEBC 2022 constituency and ward schedule for the five counties; returns `{constituenciesAdded, wardsAdded, alreadyPresent, conflicts}`.
+- `POST /admin/elections/:id/constituencies` `{countyId, code (3 digits), name}`, `POST /admin/elections/:id/wards` `{constituencyId, code (4 digits), name}`.
+- `PATCH /admin/constituencies/:id`, `PATCH /admin/wards/:id` `{name, reason}` — spelling corrections only.
+- Logos and photos: `POST /api/files` multipart with `purpose` = `COUNTY_LOGO` | `PARTY_LOGO` | `CANDIDATE_PHOTO` (images only, 2 MB, public).
+
 ## Donations — `/api/donations`
 `GET /config` · `POST /` `{idempotencyKey, amount, method, phone?, email?, name?, message?, acknowledgement, acceptTerms: true, termsVersion}` → `{donation, statusToken, next}` · `GET /:reference/status?t=` · `GET /:reference/receipt.pdf?t=` · `GET /public/summary` · `GET /public/acknowledgements`.
 
