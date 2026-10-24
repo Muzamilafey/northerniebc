@@ -3,6 +3,7 @@
  * verification workflows can be exercised locally. Refuses to run in production, and every
  * record name starts with "DEMO" so it can never be mistaken for real data.
  */
+import { pathToFileURL } from 'node:url';
 import { env } from '../config/env.js';
 import { connectMongo, disconnectMongo } from '../db/mongo.js';
 import { AgentAssignment, Candidate, Constituency, County, DataSource, Election, PollingStation, User, Ward } from '../models/index.js';
@@ -77,7 +78,7 @@ export async function seedDemo() {
   return { electionId: String(election._id), stationIds: stations.map((s) => String(s!._id)), password: pw };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await connectMongo();
   const r = await seedDemo();
   console.log('DEMO data created (synthetic, for local testing only):', r.electionId);

@@ -23,7 +23,7 @@ export function filesRouter() {
     // Images only (JPEG/PNG/WebP). SVG is not accepted because it can carry scripts.
     const allowed = isImage ? ALLOWED_MIME.image : [...ALLOWED_MIME.image, ...ALLOWED_MIME.document];
     const visibility = isImage || purpose === 'SOURCE_DOCUMENT' || purpose === 'PROJECT_EVIDENCE' ? 'PUBLIC' : 'PRIVATE';
-    const f = await saveFile(req.file.buffer, { purpose, allowed, originalName: req.file.originalname, uploadedBy: req.user!.id, visibility });
+    const f = await saveFile(req.file.buffer, { purpose, allowed, originalName: req.file.originalname, uploadedBy: req.user!.id, visibility, requireServable: isImage });
     res.status(201).json({ fileId: String(f._id), sha256: f.sha256, scanStatus: f.scanStatus, visibility: f.visibility });
   });
 

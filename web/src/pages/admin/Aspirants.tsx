@@ -38,7 +38,8 @@ function AspirantsTab() {
   const [constituencyId, setConstituencyId] = useState('');
   const [wardId, setWardId] = useState('');
   const { data: counties } = useApi<{ items: Area[] }>('/public/counties');
-  const { data: consts } = useApi<{ items: Area[] }>(eid && countyId ? `/public/elections/${eid}/constituencies` : null, { countyId });
+  const constsApi = useApi<{ items: Area[] }>(eid && countyId ? `/public/elections/${eid}/constituencies` : null, { countyId });
+  const consts = constsApi.data;
   const { data: wards } = useApi<{ items: Area[] }>(eid && constituencyId ? `/public/elections/${eid}/wards` : null, { constituencyId });
   const areaName = (items: Area[] | undefined, id: string) => items?.find((a) => a._id === id)?.name ?? '';
   const scopeRefId = scope === 'COUNTY' ? countyId : scope === 'CONSTITUENCY' ? constituencyId : scope === 'WARD' ? wardId : '';
@@ -81,6 +82,21 @@ function AspirantsTab() {
     }
   }
 
+  // Super admins only; others see the server's permission message.
+  const loadAreas = async () => {
+    setMsg({});
+    setBusy(true);
+    try {
+      const r = await api<{ countiesAdded: number; constituenciesAdded: number; wardsAdded: number; conflicts: string[] }>(`/admin/elections/${eid}/areas/load-official`, { method: 'POST' });
+      setMsg({ ok: `Loaded ${r.constituenciesAdded} constituencies and ${r.wardsAdded} wards${r.countiesAdded ? ` (and ${r.countiesAdded} missing counties)` : ''}.${r.conflicts.length ? ` Check: ${r.conflicts.join('; ')}` : ''}` });
+      void constsApi.reload();
+    } catch (x) {
+      setMsg({ err: (x as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggle = async (c: Candidate) => {
     const reason = prompt(c.active ? 'Reason for removing this aspirant from the ballot (e.g. withdrawal notice):' : 'Reason for restoring this aspirant:');
     if (!reason) return;
@@ -115,7 +131,12 @@ function AspirantsTab() {
         <p className="text-xs text-gray-500 sm:col-span-2 lg:col-span-5">President is national. Governor, Senator and Woman Representative are chosen per county, Member of Parliament per constituency, and MCA per ward.</p>
       </div>
       {positions.length === 0 && <p className="text-sm text-amber-800">Enable positions for this election under Election setup first.</p>}
-      {(scope === 'CONSTITUENCY' || scope === 'WARD') && countyId && consts?.items.length === 0 && <p className="text-sm text-amber-800">No constituencies yet for this election. A super admin can load the official IEBC list under Counties → Constituencies &amp; wards.</p>}
+      {countyId && consts?.items.length === 0 && (
+        <div className="card flex flex-wrap items-center gap-3 border-amber-300 bg-amber-50 text-sm text-amber-900">
+          <p className="flex-1">No constituencies or wards are loaded for this county in this election yet.</p>
+          <button className="btn-primary" disabled={busy} onClick={loadAreas}>Load official IEBC constituencies &amp; wards</button>
+        </div>
+      )}
       {scope && scope !== 'NATIONAL' && !scopeRefId && <p className="text-sm text-amber-800">{POSITION_LABELS[pos]} aspirants contest per {scope.toLowerCase()} — choose the {scope.toLowerCase()} above to add or list them.</p>}
 
       {pos && (

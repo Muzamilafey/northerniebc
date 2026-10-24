@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { fmtDate, humanize } from '../lib/format';
 
@@ -184,13 +184,14 @@ export function Independence({ compact = false }: { compact?: boolean }) {
 
 /** Public image (county logo, party logo, aspirant photo) with an initials fallback. */
 export function PublicImage({ fileId, alt, size = 40, rounded = 'rounded-md', fallback }: { fileId?: string | null; alt: string; size?: number; rounded?: string; fallback?: string }) {
-  if (!fileId) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (!fileId || failed === fileId) {
     const initials = (fallback ?? alt).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
     return (
-      <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center bg-gray-100 text-xs font-bold text-gray-500 ${rounded}`} style={{ width: size, height: size }}>
+      <span aria-hidden="true" title={fileId ? 'Image unavailable' : undefined} className={`inline-flex shrink-0 items-center justify-center bg-gray-100 text-xs font-bold text-gray-500 ${rounded}`} style={{ width: size, height: size }}>
         {initials || '?'}
       </span>
     );
   }
-  return <img src={`/api/files/${fileId}`} alt={alt} width={size} height={size} loading="lazy" className={`shrink-0 object-contain ${rounded}`} style={{ width: size, height: size }} />;
+  return <img src={`/api/files/${fileId}`} alt={alt} width={size} height={size} loading="lazy" onError={() => setFailed(fileId)} className={`shrink-0 object-contain ${rounded}`} style={{ width: size, height: size }} />;
 }

@@ -4,6 +4,7 @@
  * It does NOT load any election results, budgets, projects or findings — those must come
  * from source documents through the import workflow.
  */
+import { pathToFileURL } from 'node:url';
 import { connectMongo, disconnectMongo } from '../db/mongo.js';
 import { County, DataSource } from '../models/index.js';
 
@@ -33,7 +34,7 @@ export async function seedReference() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await connectMongo();
   await seedReference();
   console.log('Reference data loaded: 5 counties, 4 official portals.');

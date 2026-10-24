@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { parse } from '../../lib/http.js';
 import { requirePermission } from '../../middleware/auth.js';
 import { AREAS, AREAS_SOURCE } from '../../data/areas.js';
+import { COUNTIES } from '../../scripts/seedReference.js';
 import {
   Candidate,
   Constituency,
@@ -303,9 +304,24 @@ export function electionsAdminRouter() {
   r.post('/elections/:id/areas/load-official', requirePermission('counties.manage'), async (req, res) => {
     const election = await Election.findById(String(req.params.id)).lean();
     if (!election) throw notFound('Election not found');
-    const counties = await County.find({ code: { $in: Object.keys(AREAS) } }).lean();
-    const summary = { constituenciesAdded: 0, wardsAdded: 0, alreadyPresent: 0, conflicts: [] as string[] };
+    const summary = { countiesAdded: 0, constituenciesAdded: 0, wardsAdded: 0, alreadyPresent: 0, conflicts: [] as string[] };
     await withTransaction(async (s) => {
+      // Find each covered county by its official code, or by name when it was entered by hand
+      // ("ISIOLO COUNTY" matches Isiolo); create it if it is missing.
+      const existing = await County.find().session(s).lean();
+      const norm = (n: string) => n.toLowerCase().replace(/\bcounty\b/g, '').replace(/[^a-z]/g, '');
+      const counties: { _id: unknown; code: string }[] = [];
+      for (const ref of COUNTIES) {
+        const c = existing.find((x) => x.code === ref.code) ?? existing.find((x) => norm(x.name) === norm(ref.name));
+        if (c && c.code !== ref.code) summary.conflicts.push(`${c.name} has code ${c.code}; the official IEBC code is ${ref.code}`);
+        for (const d of existing) if (d !== c && norm(d.name) === norm(ref.name)) summary.conflicts.push(`"${d.name}" (code ${d.code}) looks like a duplicate of ${ref.name} ${ref.code}; areas were loaded under ${c?.name ?? ref.name}`);
+        if (c) counties.push({ _id: c._id, code: ref.code });
+        else {
+          const [doc] = await County.create([ref], { session: s });
+          counties.push({ _id: doc!._id, code: ref.code });
+          summary.countiesAdded++;
+        }
+      }
       const source = await DataSource.findOneAndUpdate(
         { url: AREAS_SOURCE.url },
         { $setOnInsert: { ...AREAS_SOURCE, retrievedAt: new Date(), verificationStatus: 'REVIEWED', notes: 'Constituency and county assembly ward codes for the five covered counties.' } },

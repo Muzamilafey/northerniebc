@@ -3,7 +3,7 @@ import path from 'node:path';
 import net from 'node:net';
 import crypto from 'node:crypto';
 import { env } from '../../config/env.js';
-import { badRequest } from '../../lib/errors.js';
+import { badRequest, serviceUnavailable } from '../../lib/errors.js';
 import { sha256 } from '../../lib/crypto.js';
 import { logger } from '../../lib/logger.js';
 import { StoredFile } from '../../models/system.js';
@@ -68,7 +68,13 @@ export interface SaveOptions {
   visibility?: 'PRIVATE' | 'PUBLIC';
   /** Internally generated files (receipts) skip the scanner. */
   trusted?: boolean;
+  /** Refuse the upload when it could not be scanned, instead of storing a file nobody can open. */
+  requireServable?: boolean;
 }
+
+/** Why a file that cannot be served right now was refused — shown to administrators. */
+const NOT_SCANNED =
+  'Upload refused: no malware scanner is reachable, so the image could never be shown. Set CLAMAV_HOST in server/.env (production), or for local testing set ALLOW_UNSCANNED_UPLOADS=true, restart the API and upload again.';
 
 export async function saveFile(buf: Buffer, opts: SaveOptions) {
   if (buf.length === 0) throw badRequest('Empty file');
@@ -91,6 +97,7 @@ export async function saveFile(buf: Buffer, opts: SaveOptions) {
     }
   } else if (env.ALLOW_UNSCANNED_UPLOADS) scanStatus = 'UNSCANNED_DEV';
   if (scanStatus === 'INFECTED') throw badRequest('File rejected by malware scanner');
+  if (opts.requireServable && !isServable(scanStatus)) throw serviceUnavailable(NOT_SCANNED);
 
   const storageKey = `${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}`;
   const full = path.join(root, storageKey);

@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, seedElection, setupDb, teardownDb } from './helpers.js';
 import { Candidate, Ward } from '../src/models/index.js';
+import { env } from '../src/config/env.js';
 
 let app: Express;
 let fx: Awaited<ReturnType<typeof seedElection>>;
@@ -135,5 +136,28 @@ describe('constituencies and wards', () => {
     expect((await request(app).patch(`/api/admin/wards/${w.body.ward._id}`).set(sa.auth).send({ name: 'New Ward B', reason: 'Spelling per gazette' })).status).toBe(200);
     const areas = await request(app).get(`/api/admin/elections/${eid}/areas`).set(sa.auth);
     expect(areas.body.items.find((x: { code: string }) => x.code === '901').wards[0].name).toBe('New Ward B');
+  });
+});
+
+describe('upload and area safeguards', () => {
+  it('refuses an image it could never show when no scanner is configured', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    const saved = env.ALLOW_UNSCANNED_UPLOADS;
+    (env as { ALLOW_UNSCANNED_UPLOADS: boolean }).ALLOW_UNSCANNED_UPLOADS = false;
+    try {
+      const r = await uploadImage(sa.auth, 'PARTY_LOGO');
+      expect(r.status).toBe(503);
+      expect(r.body.error.message).toContain('ALLOW_UNSCANNED_UPLOADS');
+    } finally {
+      (env as { ALLOW_UNSCANNED_UPLOADS: boolean }).ALLOW_UNSCANNED_UPLOADS = saved;
+    }
+  });
+
+  it('flags a hand-made duplicate county when loading the official list', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    expect((await request(app).post('/api/admin/counties').set(sa.auth).send({ code: '098', name: 'MARSABIT COUNTY' })).status).toBe(201);
+    const r = await request(app).post(`/api/admin/elections/${String(fx.election._id)}/areas/load-official`).set(sa.auth);
+    expect(r.status).toBe(200);
+    expect(r.body.conflicts.join(' ')).toContain('"MARSABIT COUNTY" (code 098) looks like a duplicate of Marsabit 010');
   });
 });

@@ -16,6 +16,7 @@
     "db:seed-demo": "tsx --env-file=.env src/scripts/seedDemo.ts",
     "user:create-admin": "tsx --env-file=.env src/scripts/createAdmin.ts",
     "audit:verify": "tsx --env-file=.env src/scripts/verifyAuditChain.ts",
+    "files:rescan": "tsx --env-file=.env src/scripts/rescanFiles.ts",
     "load:test": "tsx --env-file=.env src/scripts/loadTest.ts"
   },
   "dependencies": {

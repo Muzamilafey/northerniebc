@@ -35,8 +35,16 @@ All privileged accounts must enrol an authenticator app (My account & security) 
 ## Counties, constituencies, wards, aspirants and parties
 
 - **Counties** (super administrators): add a county with its official code and upload its logo (JPEG/PNG/WebP, at most 2 MB; SVG is refused). Logos appear on the home page, the county list and each county page. Codes cannot be changed.
-- **Constituencies & wards** (on the Counties page, per election): **Load official IEBC list** adds the 24 constituencies and 120 county assembly wards of the five counties with their IEBC codes (constituencies 027–050, wards 0131–0250). They come from the IEBC *Registered Voters per County Assembly Ward, 2022 General Election* schedule, which is recorded as the source. Loading again changes nothing that already exists. If the IEBC gazettes new boundaries, add constituencies or wards by hand with their new codes. A spelling can be corrected with a reason, but codes never change. A later `POLLING_STATIONS` import joins stations to these areas by code.
+- **Constituencies & wards** (on the Counties page or from the Aspirants page, per election): **Load official IEBC list** adds the 24 constituencies and 120 county assembly wards of the five counties with their IEBC codes (constituencies 027–050, wards 0131–0250). They come from the IEBC *Registered Voters per County Assembly Ward, 2022 General Election* schedule, which is recorded as the source. Loading again changes nothing that already exists. If the IEBC gazettes new boundaries, add constituencies or wards by hand with their new codes. A spelling can be corrected with a reason, but codes never change. Counties are matched by official code, then by name ("ISIOLO COUNTY" matches Isiolo), and created if missing. Duplicates and code mismatches are reported. A later `POLLING_STATIONS` import joins stations to these areas by code.
 - **Aspirants & parties**: choose the election, then the county, constituency, ward and position. The President is national. Governor, Senator and Woman Representative are chosen per county, Member of Parliament per constituency, and MCA per ward. Add each aspirant with their ballot name, party (or Independent), photo and source reference (for example the gazette notice). Under *Parties*, add each party with its abbreviation and logo. Photos and party logos appear on public results, station pages and the agent count screen. Removing an aspirant needs a reason. Renaming a party updates its aspirants.
+
+### Images not showing
+
+Every upload is checked for malware before anyone can open it. If no scanner is reachable, image uploads are now refused with a message saying so (earlier they were stored but never shown).
+- **Production:** run ClamAV and set `CLAMAV_HOST` (and `CLAMAV_PORT`) in `server/.env`.
+- **Local testing only:** set `ALLOW_UNSCANNED_UPLOADS=true` in `server/.env` (production refuses to start with it).
+
+Restart the API, then run `npm run files:rescan -w server` to release images uploaded before the change, or upload them again.
 
 ## Before an election
 
