@@ -47,6 +47,8 @@ export function Privacy() {
         <p><strong>Donors.</strong> We collect the details needed to process your payment (for M-Pesa, your phone number) and, optionally, your name, email and message. Contact details are encrypted at rest. We never store M-Pesa PINs or card security codes; card payments use the provider's hosted checkout. Your name is shown publicly only if you choose a named acknowledgement; amounts are never shown per donor.</p>
         <p><strong>Citizen reporters.</strong> Names and contact details are optional, encrypted, visible only to moderators on explicit request (which is logged), and never published.</p>
         <p><strong>Staff and agents.</strong> We record sign-in activity and actions in an audit log to protect the integrity of the data.</p>
+        <p><strong>Agent registration and KRA.</strong> When you register as an agent, we send your national ID number to the Kenya Revenue Authority's PIN Checker to confirm your name and KRA PIN. These details are stored encrypted, are used only to vet agents, and are visible only to the administrators who approve agents (each view is logged). We never show them publicly.</p>
+        <p><strong>Results-form photos.</strong> If an agent uses “read the numbers with AI”, the photo of the results form is sent to our AI provider (Anthropic) to read the figures. The reading is advisory and checked by people.</p>
         <p><strong>Retention.</strong> Payment records are retained as required for financial accountability; citizen-report contact details are deleted when no longer needed for follow-up. To exercise your rights (access, correction, deletion where lawful) contact the platform operator shown on the Donate page.</p>
       </section>
     </div>

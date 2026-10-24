@@ -22,6 +22,9 @@ const Donate = lazy(() => import('./pages/public/Donate'));
 const DonationStatusPage = lazy(() => import('./pages/public/Donate').then((m) => ({ default: m.DonationStatusPage })));
 const Transparency = lazy(() => import('./pages/public/Donate').then((m) => ({ default: m.Transparency })));
 const DonationTerms = lazy(() => import('./pages/public/Donate').then((m) => ({ default: m.DonationTerms })));
+const Register = lazy(() => import('./pages/public/Register'));
+const RegisterConfirm = lazy(() => import('./pages/public/Register').then((m) => ({ default: m.RegisterConfirm })));
+const SettingsPage = lazy(() => import('./pages/admin/Settings'));
 const Search = lazy(() => import('./pages/public/Search'));
 const Login = lazy(() => import('./pages/public/Login'));
 const ForgotPassword = lazy(() => import('./pages/public/Login').then((m) => ({ default: m.ForgotPassword })));
@@ -92,6 +95,8 @@ export default function App() {
           <Route path="donate/transparency" element={<Transparency />} />
           <Route path="donate/terms" element={<DonationTerms />} />
           <Route path="search" element={<Search />} />
+          <Route path="register" element={<Register />} />
+          <Route path="register/confirm" element={<RegisterConfirm />} />
           <Route path="login" element={<Login />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
           <Route path="reset-password" element={<ResetPassword />} />
@@ -114,6 +119,7 @@ export default function App() {
           <Route path="admin/donations" element={<DonationsAdmin />} />
           <Route path="admin/audit-log" element={<AuditLog />} />
           <Route path="admin/account" element={<Account />} />
+          <Route path="admin/settings" element={<SettingsPage />} />
           <Route path="verify" element={<Queue />} />
           <Route path="verify/submissions/:id" element={<SubmissionDetail />} />
           <Route path="verify/approvals" element={<Approvals />} />

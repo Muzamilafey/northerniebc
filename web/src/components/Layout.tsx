@@ -119,6 +119,7 @@ export function StaffLayout() {
     ['/verify/citizen-reports', 'Citizen reports', can.moderate(r)],
     ['/admin/donations', 'Donations', can.donations(r)],
     ['/admin/audit-log', 'Audit log', can.audit(r)],
+    ['/admin/settings', 'Settings', r === 'SUPER_ADMIN'],
     ['/admin/account', 'My account & security', true]
   ];
   return (

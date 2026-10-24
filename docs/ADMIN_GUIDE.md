@@ -14,6 +14,24 @@
 
 All privileged accounts must enrol an authenticator app (My account & security) before they can act.
 
+## Settings (super administrators)
+
+**Settings** holds integration credentials: KRA PIN Checker, M-Pesa (Daraja), SMTP email, and the switch for open agent self-registration. Values saved there override the server's `.env`. Secrets are stored encrypted, are never shown again after saving (leave a field blank to keep it), and every change is audit-logged without the secret values. Use **Test connection** after saving.
+
+## Agents: registration and approval
+
+- **Created by an administrator.** The account starts *awaiting approval*.
+- **Self-registered.** When registration is open and KRA is configured, applicants go to `/register` and give their national ID number and email (phone optional). Their name and KRA PIN are fetched from the KRA PIN Checker and are **locked**: neither the agent nor any administrator can change them. They confirm through an emailed link and set a password. The public form never displays the name or PIN, and lookups are rate-limited per IP address and per ID number.
+- **Approval (every agent).** Under *Users & agents → Agents awaiting approval → Review approval*, compare the KRA details (viewing them is logged) with the agent's ID card and appointment or accreditation letter. Tick the checks, record the accreditation reference, and approve. The administrator who created the account cannot approve it. Until approved, an agent cannot count or submit.
+
+## How counting is protected
+
+- Each **+** adds one vote and is recorded on the server immediately, in a timestamped, hash-chained tally log (queued on the phone when offline). It never submits a result.
+- **Undo** reverses only the previous addition and always needs a reason (accidental tap, wrong candidate, counted twice, or other with an explanation).
+- Tapping faster than a person can count is flagged (`MAX_TAPS_PER_SECOND`) or refused (`HARD_MAX_TAPS_PER_SECOND`). A count above the station's registered voters is flagged.
+- **Submitting** requires the agent's password within the last 15 minutes, the declaration, and (if configured) the form photo. The server compares the submitted figures with the live tap count and with the AI reading of the form. Differences are flagged for reviewers, never silently corrected.
+- **AI form reading** (Form 34A for the presidential race, 35A–39A for the others; set each form code in Election setup or apply the template) reads the figures from the photo. The agent must tick that they checked every number before using them. Readings can be wrong, so reviewers see the live count, the AI reading and the submitted figures side by side and can rerun the reading.
+
 ## Before an election
 
 1. **Election setup** → create the election (DRAFT). Under *Configure positions*, enable each contested position. Set the required form fields and the reconciliation rules **from the official documentation for that election**, and record the source.

@@ -146,6 +146,7 @@ function AssignAgent({ agent, onClose }: { agent: UserRow; onClose: () => void }
 
 /** Agent vetting: a different administrator confirms identity, phone and accreditation. */
 function VetAgent({ agent, onClose }: { agent: UserRow; onClose: (m?: { err?: string }) => void }) {
+  const ident = useApi<{ fullName: string; source: string; locked: boolean; nationalId: string | null; kraPin: string | null; verifiedAt: string | null; email: string; emailVerified: boolean; phoneMasked: string | null }>(`/admin/users/${agent._id}/identity`);
   const [form, setForm] = useState({ identityChecked: false, phoneChecked: false, accreditationChecked: false, accreditationReference: '', note: '' });
   const [err, setErr] = useState<string>();
   const decide = async (decision: 'APPROVE' | 'REJECT') => {
@@ -161,6 +162,17 @@ function VetAgent({ agent, onClose }: { agent: UserRow; onClose: (m?: { err?: st
     <section className="card space-y-3 border-brand-500">
       <div className="flex justify-between"><h2 className="font-bold">Approve agent {agent.fullName} ({agent.agentCode})</h2><button className="link" onClick={() => onClose()}>Close</button></div>
       <p className="text-sm text-gray-600">Approve only after checking in person or by video. The administrator who created this account cannot approve it.</p>
+      {ident.data && (
+        <dl className="grid gap-1 rounded bg-gray-50 p-3 text-sm sm:grid-cols-2">
+          <div><dt className="text-xs text-gray-500">Name</dt><dd>{ident.data.fullName}{ident.data.locked && <span className="ml-1 text-xs text-green-800">(from KRA, locked)</span>}</dd></div>
+          <div><dt className="text-xs text-gray-500">Identity source</dt><dd>{ident.data.source === 'KRA_PIN_CHECKER' ? `KRA PIN Checker, ${fmtDateTime(ident.data.verifiedAt)}` : 'Entered by administrator'}</dd></div>
+          <div><dt className="text-xs text-gray-500">National ID</dt><dd>{ident.data.nationalId ?? '—'}</dd></div>
+          <div><dt className="text-xs text-gray-500">KRA PIN</dt><dd>{ident.data.kraPin ?? '—'}</dd></div>
+          <div><dt className="text-xs text-gray-500">Email</dt><dd>{ident.data.email} {ident.data.emailVerified && '(verified)'}</dd></div>
+          <div><dt className="text-xs text-gray-500">Phone</dt><dd>{ident.data.phoneMasked ?? '—'}</dd></div>
+          <p className="text-xs text-gray-500 sm:col-span-2">Viewing these details is recorded in the audit log. Compare them with the agent's ID card.</p>
+        </dl>
+      )}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.identityChecked} onChange={(e) => setForm({ ...form, identityChecked: e.target.checked })} /> National ID / passport checked against the name on the account</label>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.phoneChecked} onChange={(e) => setForm({ ...form, phoneChecked: e.target.checked })} /> Phone number confirmed (call or SMS code)</label>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.accreditationChecked} onChange={(e) => setForm({ ...form, accreditationChecked: e.target.checked })} /> Accreditation / appointment letter checked</label>

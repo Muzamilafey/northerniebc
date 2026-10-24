@@ -49,6 +49,7 @@ export default function Login() {
           <button className="btn-primary w-full" disabled={busy}>{busy ? 'Please wait…' : mfaToken ? 'Verify' : 'Sign in'}</button>
         </form>
         <p className="text-center text-sm"><Link className="link" to="/forgot-password">Forgot password?</Link></p>
+        <p className="text-center text-sm"><Link className="link" to="/register">Register as a polling-station agent</Link></p>
         <p className="text-center text-xs text-gray-500">Public visitors do not need an account.</p>
       </div>
     </div>

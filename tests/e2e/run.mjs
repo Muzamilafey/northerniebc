@@ -144,6 +144,65 @@ await step('an unapproved agent cannot count until a different administrator app
   assert.equal(await p.getByText(/awaiting approval/).count(), 0);
 });
 
+await step('admin configures KRA in Settings; an agent self-registers with ID + email; name and KRA PIN come from KRA', async () => {
+  // Local stand-in for the KRA sandbox (same request/response shapes as the published API).
+  const http = await import('node:http');
+  const kra = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url.startsWith('/v1/token/generate')) return res.end(JSON.stringify({ access_token: 'kra-token', expires_in: '3599' }));
+      if (req.url === '/checker/v1/pin') return res.end(JSON.parse(b).TaxpayerID === '41789723' ? JSON.stringify({ TaxpayerPIN: 'A000000000I', TaxpayerName: 'YAMAS12 TEST OMINI01' }) : JSON.stringify({ ErrorCode: '30002', ErrorMessage: 'Invalid ID' }));
+      res.writeHead(404).end('{}');
+    });
+  });
+  await new Promise((r) => kra.listen(0, '127.0.0.1', r));
+  try {
+    const admin = await (await browser.newContext({ viewport: { width: 1280, height: 1000 } })).newPage();
+    await login(admin, 'demo-admin@example.org');
+    await admin.goto(`${BASE}/admin/settings`);
+    const kraSec = admin.locator('section', { has: admin.getByRole('heading', { name: 'KRA PIN Checker' }) });
+    await kraSec.getByLabel('Base URL').fill(`http://127.0.0.1:${kra.address().port}`);
+    await kraSec.getByLabel('Consumer key').fill('demo-key');
+    await kraSec.getByLabel('Consumer secret').fill('demo-secret');
+    await kraSec.getByRole('button', { name: 'Save KRA PIN Checker' }).click();
+    await kraSec.getByText(/Saved:/).waitFor();
+    await kraSec.getByRole('button', { name: 'Test connection' }).click();
+    await kraSec.getByText('Connection succeeded').waitFor();
+    assert.equal(await kraSec.getByLabel('Consumer secret').inputValue(), '');
+    const regSec = admin.locator('section', { has: admin.getByRole('heading', { name: 'Agent self-registration' }) });
+    await regSec.getByLabel('Open agent self-registration').selectOption('true');
+    await regSec.getByRole('button', { name: /Save/ }).click();
+    await regSec.getByText(/Saved:/).waitFor();
+    await admin.screenshot({ path: `${SHOTS}/06b-settings.png`, fullPage: true });
+
+    const p = await (await browser.newContext({ ...mobile })).newPage();
+    await p.goto(`${BASE}/register`);
+    await p.getByLabel('National ID number').fill('41789723');
+    await p.getByLabel('Email address').fill('self.registered@example.org');
+    await p.getByRole('checkbox').check();
+    await p.getByRole('button', { name: 'Verify and continue' }).click();
+    await p.getByText(/confirmation link has been sent/).waitFor();
+    assert.equal(await p.getByText('YAMAS12').count(), 0);
+    await p.getByRole('link', { name: 'open confirmation link' }).click();
+    await p.getByText('Y****** T*** O******').waitFor();
+    await p.getByLabel('Choose a password').fill('a-strong-passphrase-2026');
+    await p.getByRole('button', { name: 'Create my agent account' }).click();
+    await p.getByText(/Registration complete/).waitFor();
+    await p.screenshot({ path: `${SHOTS}/06c-registered.png`, fullPage: true });
+
+    await admin.goto(`${BASE}/admin/users`);
+    await admin.getByRole('button', { name: 'Agents awaiting approval' }).click();
+    await admin.getByRole('row', { name: /YAMAS12 TEST OMINI01/ }).getByRole('button', { name: 'Review approval' }).click();
+    await admin.getByText('A000000000I').waitFor();
+    await admin.getByText('(from KRA, locked)').waitFor();
+    await admin.screenshot({ path: `${SHOTS}/06d-vetting-kra.png`, fullPage: true });
+  } finally {
+    kra.close();
+  }
+});
+
 await step('verifier sees the submission and verifies it', async () => {
   const v = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
   await login(v, 'demo-verifier@example.org');

@@ -35,14 +35,23 @@ Restricted (permission checked and audit-logged): `submissions` (results.monitor
 Submission body: `{idempotencyKey (uuid), electionId, pollingStationId, position, candidateVotes[{candidateId, votes}], fields{registeredVoters,totalVotesCast,rejectedVotes,rejectedObjectedTo,disputedVotes,validVotes}, formReference?, evidenceFileIds[], declarationAccepted: true, baseRevision: number|null, correctionReason?}`.
 Returns `201 {receipt}`. A replay with the same key returns `200` with the same receipt. A stale `baseRevision` returns `409` with `details.serverRevision`.
 
+Live counting and safeguards (agent):
+`POST /confirm-identity {password}` (password re-confirmation, valid `SUBMIT_REAUTH_MINUTES`) · `POST /tally-events {clientSessionId, electionId, pollingStationId, position, events[{seq, kind: INCREMENT|UNDO|SET, candidateId, undoOfSeq?, value?, reasonCode?, reason?, clientAt?}]}`. Events must be in sequence: a gap returns 409 with `details.expectedSeq`, duplicates are ignored, and an absurd tap rate returns 422. · `GET /count-sessions/:clientSessionId` · `POST /form-extract {fileId, electionId, pollingStationId, position}` (AI reading of the uploaded form; advisory). Submissions accept `countSessionId`, need an approved (vetted) agent, and need a recent password confirmation (403 `STEP_UP_REQUIRED`).
+
+## Agent registration — `/api/agent-registration`
+`GET /config` · `POST /start {idNumber, email, phone?, consent: true}` → 202 with a generic message (never the name or PIN) · `GET /confirm?token` → masked name · `POST /complete {token, password}` → creates an AGENT awaiting approval, with name and KRA PIN locked.
+
+## Settings — `/api/admin/settings` (SUPER_ADMIN)
+`GET /` (secrets reported only as set or unset) · `PUT /:section {values, clear[]}` for `mpesa | smtp | kra | registration` · `POST /:section/test`.
+
 ## Verification — `/api/verification`
-`GET /dashboard`, `/tally`, `/submissions`, `/submissions/:submissionId` · `POST /submissions/:id/start-review {note}` · `POST /submissions/:id/decision {revision, decision: VERIFY|REJECT, note}`. Returns 202 with `approvalId` when a second reviewer is required.
+`GET /dashboard`, `/tally`, `/submissions`, `/submissions/:submissionId` · `POST /submissions/:id/extract {fileId}` (rerun AI reading) · `POST /submissions/:id/start-review {note}` · `POST /submissions/:id/decision {revision, decision: VERIFY|REJECT, note}`. Returns 202 with `approvalId` when a second reviewer is required.
 
 ## Approvals — `/api/approvals`
 `GET /` · `POST /:id/approve|reject {note}`. The approver must be a different user from the requester. Kinds: `RESULT_CORRECTION`, `MANUAL_RECONCILIATION`, `REFUND`.
 
 ## Admin — `/api/admin`
-Users: `GET/POST /users`, `PATCH /users/:id`, `POST /users/:id/{suspend,reactivate,revoke,revoke-sessions,reset-password,reset-mfa}`; assignments `GET/POST /assignments`, `POST /assignments/:id/revoke`.
+Users: `GET/POST /users` (`?vetting=PENDING`), `PATCH /users/:id` (locked KRA names cannot change), `GET /users/:id/identity` (audited), `POST /users/:id/vetting {decision, identityChecked, phoneChecked, accreditationChecked, accreditationReference, note}`, `GET /form-templates`, `POST /users/:id/{suspend,reactivate,revoke,revoke-sessions,reset-password,reset-mfa}`; assignments `GET/POST /assignments`, `POST /assignments/:id/revoke`.
 Elections: `GET/POST /elections`, `PATCH /elections/:id`, `POST /candidates`, `PATCH /candidates/:id`.
 Records: `GET /records/:kind` (`BUDGET_FIGURE|DISBURSEMENT|PROJECT|AUDIT_FINDING`), `GET /records/:kind/:id/history`, `POST /records/:kind/:id/advance {to}`, `POST /records/:kind/:id/correct {changes, reason}`, `PATCH /records/:kind/:id`; `POST /figures`, `/disbursements`, `/departments`, `/projects`, `/projects/:id/flag`, `GET /projects-discrepancies`, `POST /audit-findings`.
 Sources: `GET/POST /sources`, `POST /sources/:id/document`, `POST /sources/:id/review`.
