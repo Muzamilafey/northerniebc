@@ -1,0 +1,17 @@
+{
+  "name": "the-northern-iebc",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Northern IEBC — independent election monitoring and county accountability platform. Follow the Vote. Follow the Money.",
+  "workspaces": ["server", "web"],
+  "engines": { "node": ">=20.11 <23" },
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w server && npm run build -w web",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm test -w server && npm test -w web",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "test:load": "node tests/load/results-load.mjs"
+  }
+}

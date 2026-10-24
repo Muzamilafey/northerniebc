@@ -1,0 +1,8 @@
+import { connectMongo, disconnectMongo } from '../db/mongo.js';
+import { verifyAuditChain } from '../lib/audit.js';
+
+await connectMongo();
+const r = await verifyAuditChain();
+console.log(JSON.stringify(r, null, 2));
+await disconnectMongo();
+process.exit(r.ok ? 0 : 2);
