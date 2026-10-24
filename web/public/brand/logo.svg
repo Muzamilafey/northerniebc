@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-labelledby="t d">
+  <title id="t">The Northern IEBC</title>
+  <desc id="d">Roundel: orange upper half, white lower half, outline of Kenya, a hand casting a ballot into a ballot box marked with a camel. Independent election monitoring, not affiliated with the IEBC.</desc>
+  <defs>
+    <clipPath id="disc"><circle cx="200" cy="200" r="186"/></clipPath>
+    <path id="topArc" d="M 62 200 A 138 138 0 0 1 338 200"/>
+    <path id="bottomArc" d="M 40 205 A 160 160 0 0 0 360 205"/>
+  </defs>
+  <g clip-path="url(#disc)">
+    <rect width="400" height="400" fill="#ffffff"/>
+    <rect width="400" height="186" fill="#E39046"/>
+  </g>
+  <circle cx="200" cy="200" r="186" fill="none" stroke="#111" stroke-width="5"/>
+  <!-- Simplified outline of Kenya -->
+  <path d="M146 150 L166 140 L186 146 L192 136 L214 160 L238 164 L258 150 L284 154 L268 178 L264 214 L264 252 L276 268 L262 284 L250 304 L232 314 L214 296 L196 282 L170 268 L150 256 L144 236 L136 212 L140 186 L136 166 Z" fill="#E39046" stroke="#111" stroke-width="4" stroke-linejoin="round"/>
+  <!-- Hand and ballot -->
+  <path d="M290 178 L254 184 C246 182 238 186 234 192 L226 204 C224 210 230 212 234 208 L238 204 L240 214 C244 218 252 216 256 212 L262 200 L292 196 Z" fill="#111"/>
+  <rect x="204" y="200" width="30" height="36" fill="#fff" stroke="#111" stroke-width="2.5" transform="rotate(-12 219 218)"/>
+  <!-- Ballot box -->
+  <path d="M170 248 L186 236 L250 236 L234 248 Z" fill="#fff" stroke="#111" stroke-width="2.5"/>
+  <rect x="170" y="248" width="64" height="48" fill="#fff" stroke="#111" stroke-width="2.5"/>
+  <path d="M234 248 L250 236 L250 284 L234 296 Z" fill="#eee" stroke="#111" stroke-width="2.5"/>
+  <rect x="200" y="240" width="24" height="3" fill="#111"/>
+  <!-- Camel -->
+  <g fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M182 278 C182 270 186 266 192 266 C194 258 200 256 203 262 C205 266 208 266 210 262 C212 258 214 256 216 258 L219 254 L223 255 L224 258 L220 260 L218 268 C216 274 212 276 208 277 L184 278 Z"/>
+    <path d="M186 278 L185 291 M191 278 L191 291 M204 277 L205 291 M209 277 L210 291"/>
+    <path d="M182 272 C179 274 178 278 179 282"/>
+  </g>
+  <!-- Lettering -->
+  <text font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="30" fill="#fff" stroke="#7a3d0d" stroke-width="0.6" letter-spacing="1">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">THE NORTHERN IEBC</textPath>
+  </text>
+  <rect x="122" y="104" width="156" height="26" rx="8" fill="#E2862F"/>
+  <text x="200" y="123" text-anchor="middle" font-family="Poppins, Arial, sans-serif" font-style="italic" font-size="17" fill="#fff">tulinde Kura Zetu</text>
+  <text font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="14.5" fill="#111" letter-spacing="1">
+    <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">INDEPENDENT ELECTION MONITORING · NORTHERN KENYA</textPath>
+  </text>
+</svg>

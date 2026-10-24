@@ -1,0 +1,11 @@
+[Unit]
+Description=The Northern IEBC encrypted backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nie-backup
+EnvironmentFile=/etc/northern-iebc/backup.env
+ExecStart=/srv/northern-iebc/deploy/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle

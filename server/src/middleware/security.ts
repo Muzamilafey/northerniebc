@@ -60,4 +60,4 @@ export function limiter(name: string, opts: Partial<Options> & { windowMs: numbe
 export const loginLimiter = () => limiter('login', { windowMs: 15 * 60_000, limit: 20 });
 export const publicFormLimiter = () => limiter('public-form', { windowMs: 60 * 60_000, limit: 10 });
 export const donationLimiter = () => limiter('donation', { windowMs: 15 * 60_000, limit: 10 });
-export const apiLimiter = () => limiter('api', { windowMs: 60_000, limit: 600 });
+export const apiLimiter = () => limiter('api', { windowMs: 60_000, limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 600) });

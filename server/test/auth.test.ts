@@ -4,7 +4,7 @@ import { authenticator } from 'otplib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, createUser, login, PASSWORD, setupDb, teardownDb } from './helpers.js';
 import { AuditEvent, Session, User } from '../src/models/index.js';
-import { verifyAuditChain } from '../src/lib/audit.js';
+import { sealAuditChain, verifyAuditChain } from '../src/lib/audit.js';
 
 let app: Express;
 beforeAll(async () => {
@@ -129,8 +129,9 @@ describe('input hardening', () => {
 
 describe('audit chain tamper detection', () => {
   it('detects modification of a past audit event', async () => {
+    await sealAuditChain(10_000);
     expect((await verifyAuditChain()).ok).toBe(true);
-    const first = await AuditEvent.findOne().sort({ seq: 1 });
+    const first = await AuditEvent.findOne({ sealed: true }).sort({ seq: 1 });
     await AuditEvent.collection.updateOne({ _id: first!._id }, { $set: { action: 'tampered' } });
     const v = await verifyAuditChain();
     expect(v.ok).toBe(false);

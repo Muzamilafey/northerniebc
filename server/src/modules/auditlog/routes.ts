@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { verifyAuditChain } from '../../lib/audit.js';
+import { sealAuditChain, verifyAuditChain } from '../../lib/audit.js';
 import { pageParams, parse } from '../../lib/http.js';
 import { requirePermission } from '../../middleware/auth.js';
 import { AuditEvent } from '../../models/index.js';
@@ -21,6 +21,7 @@ export function auditLogRouter() {
     res.json({ items, total, page, limit });
   });
   r.get('/verify', view, async (_req, res) => {
+    await sealAuditChain();
     res.json(await verifyAuditChain());
   });
   return r;

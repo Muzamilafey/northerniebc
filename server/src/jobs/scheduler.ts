@@ -2,6 +2,7 @@ import { logger } from '../lib/logger.js';
 import { processOutboxBatch } from './outboxWorker.js';
 import { processNotificationBatch } from '../modules/notifications/service.js';
 import { processPendingDonations } from '../modules/donations/service.js';
+import { sealAuditChain } from '../lib/audit.js';
 
 interface Job {
   name: string;
@@ -11,6 +12,7 @@ interface Job {
 
 const jobs: Job[] = [
   { name: 'outbox', everyMs: 500, run: () => processOutboxBatch() },
+  { name: 'audit-seal', everyMs: 1000, run: () => sealAuditChain() },
   { name: 'notifications', everyMs: 5000, run: () => processNotificationBatch() },
   { name: 'donation-timeouts', everyMs: 60_000, run: () => processPendingDonations() }
 ];

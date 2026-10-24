@@ -4,7 +4,7 @@ import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, assign, seedElection, setupDb, teardownDb } from './helpers.js';
 import { ResultSubmission, StationResult, SubmissionRevision } from '../src/models/index.js';
-import { verifyAuditChain } from '../src/lib/audit.js';
+import { sealAuditChain, verifyAuditChain } from '../src/lib/audit.js';
 import { processOutboxBatch } from '../src/jobs/outboxWorker.js';
 import { clearCache } from '../src/lib/cache.js';
 
@@ -278,8 +278,9 @@ describe('tallies and public portal', () => {
 
 describe('audit trail', () => {
   it('records a valid hash chain', async () => {
+    await sealAuditChain(10_000);
     const v = await verifyAuditChain();
-    expect(v).toMatchObject({ ok: true });
+    expect(v).toMatchObject({ ok: true, unsealed: 0 });
     expect(v.checked).toBeGreaterThan(5);
   });
 });

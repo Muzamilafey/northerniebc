@@ -1,0 +1,9 @@
+[Unit]
+Description=The Northern IEBC weekly restore test
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nie-backup
+EnvironmentFile=/etc/northern-iebc/restore-test.env
+ExecStart=/srv/northern-iebc/deploy/scripts/restore-test.sh

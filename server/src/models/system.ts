@@ -1,13 +1,14 @@
 import { Schema, model } from 'mongoose';
 
 /**
- * Append-only, hash-chained audit log. Each event's hash covers its content and the
- * previous event's hash, so deletion or modification of history breaks the chain.
- * The application never updates or deletes these documents.
+ * Append-only, hash-chained audit log. Each event is written inside the business transaction
+ * with a hash of its content. A single background sealer then assigns the sequence number and
+ * chains it (hash = H(contentHash, seq, prevHash)), so deletion, insertion or modification of
+ * history breaks the chain without making every transaction contend on one chain head.
+ * The application never updates event content or deletes events.
  */
 const auditEventSchema = new Schema(
   {
-    seq: { type: Number, required: true, unique: true },
     at: { type: Date, required: true },
     actorId: { type: Schema.Types.ObjectId, ref: 'User' },
     actorRole: { type: String },
@@ -19,12 +20,17 @@ const auditEventSchema = new Schema(
     after: { type: Schema.Types.Mixed },
     meta: { type: Schema.Types.Mixed },
     ip: { type: String },
-    prevHash: { type: String, required: true },
-    hash: { type: String, required: true }
+    contentHash: { type: String, required: true },
+    sealed: { type: Boolean, default: false },
+    seq: { type: Number },
+    prevHash: { type: String },
+    hash: { type: String }
   },
   // minimize:false keeps empty objects so stored content hashes exactly as it was hashed.
   { versionKey: false, minimize: false }
 );
+auditEventSchema.index({ seq: 1 }, { unique: true, partialFilterExpression: { sealed: true } });
+auditEventSchema.index({ sealed: 1, _id: 1 });
 auditEventSchema.index({ actorId: 1, at: -1 });
 auditEventSchema.index({ at: -1 });
 export const AuditEvent = model('AuditEvent', auditEventSchema);
