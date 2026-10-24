@@ -88,6 +88,20 @@ const schema = z.object({
   PAYPAL_VERIFIED_OPERATIONAL: bool(false),
 
   TURNSTILE_SECRET_KEY: z.string().optional(),
+
+  // Counting safeguards
+  /** Agents must re-enter their password within this window before a result can be submitted. */
+  REQUIRE_SUBMIT_REAUTH: bool(true),
+  SUBMIT_REAUTH_MINUTES: z.coerce.number().int().positive().default(15),
+  /** Taps faster than this (per counting session) are flagged as implausible for manual counting. */
+  MAX_TAPS_PER_SECOND: z.coerce.number().positive().default(4),
+  /** Taps faster than this are refused outright. */
+  HARD_MAX_TAPS_PER_SECOND: z.coerce.number().positive().default(12),
+
+  // AI reading of results forms (Claude vision). Disabled unless an API key is configured.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  FORM_EXTRACTION_MODEL: z.string().default('claude-opus-5-5'),
+  FORM_EXTRACTIONS_PER_HOUR: z.coerce.number().int().positive().default(30),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   RUN_WORKERS: bool(true)
 });

@@ -70,6 +70,7 @@ const submissionRevisionSchema = new Schema(
     serverReceivedAt: { type: Date, required: true },
     agentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reconciliationIssues: [{ rule: String, message: String }],
+    countSessionId: { type: String },
     /** sha256 over the canonical payload, chained to the previous revision of this submission. */
     payloadHash: { type: String, required: true },
     prevRevisionHash: { type: String },
@@ -156,3 +157,83 @@ const officialStationResultSchema = new Schema(
 );
 officialStationResultSchema.index({ electionId: 1, pollingStationId: 1, position: 1 }, { unique: true });
 export const OfficialStationResult = model('OfficialStationResult', officialStationResultSchema);
+
+/**
+ * A live counting session: one per agent per station/position per counting pass. Every tap on
+ * "+" is recorded immediately as a TallyEvent, giving reviewers a timestamped trail of how the
+ * count was built. The session total is a running tally, not a submission.
+ */
+const countSessionSchema = new Schema(
+  {
+    clientSessionId: { type: String, required: true, unique: true },
+    electionId: { type: Schema.Types.ObjectId, ref: 'Election', required: true },
+    pollingStationId: { type: Schema.Types.ObjectId, ref: 'PollingStation', required: true },
+    countyId: { type: Schema.Types.ObjectId, ref: 'County', required: true },
+    position: { type: String, enum: POSITIONS, required: true },
+    agentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    status: { type: String, enum: ['OPEN', 'SUBMITTED', 'ABANDONED'], default: 'OPEN' },
+    /** candidateId -> running count */
+    tallies: { type: Map, of: Number, default: {} },
+    lastSeq: { type: Number, default: 0 },
+    lastHash: { type: String, default: '0'.repeat(64) },
+    increments: { type: Number, default: 0 },
+    undos: { type: Number, default: 0 },
+    manualSets: { type: Number, default: 0 },
+    flags: [{ type: String }],
+    startedAt: { type: Date, default: Date.now },
+    lastEventAt: { type: Date },
+    submittedAs: { submissionId: String, revision: Number }
+  },
+  { timestamps: true }
+);
+countSessionSchema.index({ agentId: 1, electionId: 1, pollingStationId: 1, position: 1, status: 1 });
+export const CountSession = model('CountSession', countSessionSchema);
+
+export const UNDO_REASONS = ['ACCIDENTAL_TAP', 'WRONG_CANDIDATE', 'DOUBLE_COUNTED', 'OTHER'] as const;
+
+const tallyEventSchema = new Schema(
+  {
+    sessionId: { type: Schema.Types.ObjectId, ref: 'CountSession', required: true },
+    seq: { type: Number, required: true },
+    kind: { type: String, enum: ['INCREMENT', 'UNDO', 'SET'], required: true },
+    candidateId: { type: Schema.Types.ObjectId, ref: 'Candidate', required: true },
+    /** For UNDO: the INCREMENT being reversed. */
+    undoOfSeq: { type: Number },
+    /** For SET: the value entered manually. */
+    value: { type: Number, min: 0 },
+    reasonCode: { type: String, enum: UNDO_REASONS },
+    reason: { type: String, maxlength: 300 },
+    clientAt: { type: Date },
+    serverAt: { type: Date, required: true },
+    flags: [{ type: String }],
+    undone: { type: Boolean, default: false },
+    prevHash: { type: String, required: true },
+    hash: { type: String, required: true }
+  },
+  { versionKey: false }
+);
+tallyEventSchema.index({ sessionId: 1, seq: 1 }, { unique: true });
+export const TallyEvent = model('TallyEvent', tallyEventSchema);
+
+/** An AI reading of an uploaded results form. Advisory only: a person always confirms. */
+const formExtractionSchema = new Schema(
+  {
+    fileId: { type: Schema.Types.ObjectId, ref: 'StoredFile', required: true, index: true },
+    electionId: { type: Schema.Types.ObjectId, ref: 'Election', required: true },
+    pollingStationId: { type: Schema.Types.ObjectId, ref: 'PollingStation', required: true },
+    position: { type: String, enum: POSITIONS, required: true },
+    formCode: { type: String },
+    requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    model: { type: String, required: true },
+    status: { type: String, enum: ['COMPLETED', 'UNREADABLE', 'REFUSED', 'FAILED'], required: true },
+    candidateVotes: [{ candidateId: { type: Schema.Types.ObjectId, ref: 'Candidate' }, votes: Number, confidence: String, _id: false }],
+    fields: { type: Schema.Types.Mixed },
+    stationCodeSeen: { type: String },
+    formCodeSeen: { type: String },
+    stampOrSignaturesVisible: { type: Boolean },
+    warnings: [{ type: String }],
+    usage: { inputTokens: Number, outputTokens: Number }
+  },
+  { timestamps: true }
+);
+export const FormExtraction = model('FormExtraction', formExtractionSchema);

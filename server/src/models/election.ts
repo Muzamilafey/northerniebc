@@ -118,6 +118,8 @@ const positionConfigSchema = new Schema(
   {
     position: { type: String, enum: POSITIONS, required: true },
     enabled: { type: Boolean, default: true },
+    /** Official results form code for this position at polling-station level, e.g. "34A". */
+    formCode: { type: String, maxlength: 10 },
     formReferenceLabel: { type: String, default: 'Official results form reference' },
     requiredFields: [{ type: String, enum: RECONCILIATION_FIELDS }],
     rules: [{ type: String, enum: RECONCILIATION_RULES }],
@@ -193,3 +195,22 @@ agentAssignmentSchema.index(
 );
 agentAssignmentSchema.index({ electionId: 1, pollingStationId: 1, active: 1 });
 export const AgentAssignment = model('AgentAssignment', agentAssignmentSchema);
+
+/**
+ * Default polling-station results forms by position (Kenyan general elections). These are
+ * starting templates only: confirm each against the forms gazetted for the specific election
+ * before relying on them, and adjust fields and rules in Election setup.
+ */
+export const FORM_TEMPLATES: Record<Position, { formCode: string; title: string; requiredFields: ReconciliationField[]; rules: ReconciliationRule[] }> = {
+  PRESIDENT: {
+    formCode: '34A',
+    title: 'Form 34A — Presidential election results at the polling station',
+    requiredFields: ['registeredVoters', 'rejectedVotes', 'rejectedObjectedTo', 'disputedVotes', 'validVotes'],
+    rules: ['CANDIDATE_SUM_EQUALS_VALID', 'CAST_NOT_EXCEEDING_REGISTERED', 'REGISTERED_MATCHES_STATION_REGISTER']
+  },
+  MP: { formCode: '35A', title: 'Form 35A — National Assembly election results at the polling station', requiredFields: ['registeredVoters', 'rejectedVotes', 'validVotes'], rules: ['CANDIDATE_SUM_EQUALS_VALID', 'CAST_NOT_EXCEEDING_REGISTERED'] },
+  MCA: { formCode: '36A', title: 'Form 36A — County Assembly election results at the polling station', requiredFields: ['registeredVoters', 'rejectedVotes', 'validVotes'], rules: ['CANDIDATE_SUM_EQUALS_VALID', 'CAST_NOT_EXCEEDING_REGISTERED'] },
+  GOVERNOR: { formCode: '37A', title: 'Form 37A — Governor election results at the polling station', requiredFields: ['registeredVoters', 'rejectedVotes', 'validVotes'], rules: ['CANDIDATE_SUM_EQUALS_VALID', 'CAST_NOT_EXCEEDING_REGISTERED'] },
+  SENATOR: { formCode: '38A', title: 'Form 38A — Senator election results at the polling station', requiredFields: ['registeredVoters', 'rejectedVotes', 'validVotes'], rules: ['CANDIDATE_SUM_EQUALS_VALID', 'CAST_NOT_EXCEEDING_REGISTERED'] },
+  WOMAN_REP: { formCode: '39A', title: 'Form 39A — County Woman Member of the National Assembly results at the polling station', requiredFields: ['registeredVoters', 'rejectedVotes', 'validVotes'], rules: ['CANDIDATE_SUM_EQUALS_VALID', 'CAST_NOT_EXCEEDING_REGISTERED'] }
+};

@@ -8,6 +8,7 @@ import { enqueueOutbox } from '../../lib/outbox.js';
 import { inScope } from '../../lib/permissions.js';
 import {
   AgentAssignment,
+  CountSession,
   Election,
   PendingApproval,
   PollingStation,
@@ -21,6 +22,8 @@ import {
 } from '../../models/index.js';
 import type { AuthUser } from '../../types/express.js';
 import { eligibleCandidates } from '../elections/service.js';
+import { assertRecentStepUp, assertVettedAgent, sessionChecks } from '../counting/service.js';
+import { extractionChecks } from '../extraction/service.js';
 import { reconcile, sameFigures, type ResultFields } from './reconciliation.js';
 
 export const DECLARATION_TEXT =
@@ -41,7 +44,12 @@ export interface SubmitInput {
   /** The revision the client last saw from the server; null for a first submission. */
   baseRevision: number | null;
   correctionReason?: string;
+  /** The live counting session these figures came from (tap-by-tap log). */
+  countSessionId?: string;
 }
+
+/** Informational notes shown to reviewers that do not, by themselves, hold back provisional publication. */
+export const INFO_RULES = new Set(['NO_LIVE_COUNT', 'UNDOS_RECORDED']);
 
 export interface Receipt {
   receiptId: string;
@@ -98,6 +106,8 @@ export async function submitResult(agent: AuthUser, i: SubmitInput, ip?: string,
   if (agent.role !== 'AGENT') throw forbidden('Only polling-station agents submit results');
   const replay = await findReplay(i, agent);
   if (replay) return replay;
+  await assertVettedAgent(agent);
+  await assertRecentStepUp(agent);
 
   if (!i.declarationAccepted) throw badRequest('The agent declaration must be accepted');
   const election = await Election.findById(i.electionId).lean();
@@ -130,13 +140,16 @@ export async function submitResult(agent: AuthUser, i: SubmitInput, ip?: string,
     if (files.some((f) => f.scanStatus === 'INFECTED')) throw badRequest('Evidence file failed malware scanning');
   }
 
-  const issues = reconcile({
+  const issues: { rule: string; message: string }[] = reconcile({
     candidateVotes: i.candidateVotes,
     fields: i.fields,
     rules: posCfg.rules as never,
     requiredFields: posCfg.requiredFields as never,
     stationRegisteredVoters: station.registeredVoters
   });
+  const live = await sessionChecks(i.countSessionId, agent.id, i.candidateVotes);
+  issues.push(...live.issues);
+  issues.push(...(await extractionChecks(i.evidenceFileIds, i.candidateVotes, i.fields)));
 
   try {
     return await withTransaction(async (s) => {
@@ -202,6 +215,7 @@ export async function submitResult(agent: AuthUser, i: SubmitInput, ip?: string,
             serverReceivedAt: now,
             agentId: agent.id,
             reconciliationIssues: issues,
+            countSessionId: i.countSessionId,
             payloadHash,
             prevRevisionHash: prevHash,
             receiptId,
@@ -210,6 +224,11 @@ export async function submitResult(agent: AuthUser, i: SubmitInput, ip?: string,
         ],
         { session: s }
       );
+
+      if (live.session) {
+        const r = await CountSession.updateOne({ _id: live.session._id, status: 'OPEN' }, { $set: { status: 'SUBMITTED', submittedAs: { submissionId: sub!.submissionId, revision } } }, { session: s });
+        if (r.modifiedCount !== 1) throw conflict('This counting session was already used for a submission');
+      }
 
       await refreshStationResult(s, {
         electionId: i.electionId,
@@ -315,7 +334,8 @@ async function refreshStationResult(s: ClientSession, a: RefreshArgs) {
   }
 
   const lead = latest[0]!;
-  const status: PublicResultStatus = hasConflict || (lead.rev.reconciliationIssues?.length ?? 0) > 0 ? 'AWAITING_VERIFICATION' : 'PROVISIONAL';
+  const blocking = (lead.rev.reconciliationIssues ?? []).filter((x) => !INFO_RULES.has(x.rule ?? ''));
+  const status: PublicResultStatus = hasConflict || blocking.length > 0 ? 'AWAITING_VERIFICATION' : 'PROVISIONAL';
   const values = {
     electionId: a.electionId,
     pollingStationId: a.pollingStationId,

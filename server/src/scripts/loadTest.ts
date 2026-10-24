@@ -44,12 +44,12 @@ const stations = await PollingStation.insertMany(
 const cands = await Candidate.insertMany(['A', 'B', 'C', 'D'].map((x, i) => ({ electionId: election._id, position: 'GOVERNOR', fullName: `LOADTEST Candidate ${x}`, scopeType: 'COUNTY', scopeRefId: county._id, ballotOrder: i })));
 
 // Agents get sessions minted directly (argon2 login for hundreds of agents is not what is under test).
-const users = await User.insertMany(Array.from({ length: AGENTS }, (_, i) => ({ fullName: `LOADTEST agent ${i}`, email: `lt-${slug}-${i}@example.invalid`, passwordHash: 'x', role: 'AGENT', agentCode: `AGT-LT${slug.slice(-6)}${i}` })));
+const users = await User.insertMany(Array.from({ length: AGENTS }, (_, i) => ({ fullName: `LOADTEST agent ${i}`, email: `lt-${slug}-${i}@example.invalid`, passwordHash: 'x', role: 'AGENT', vetting: { status: 'APPROVED' }, agentCode: `AGT-LT${slug.slice(-6)}${i}` })));
 await AgentAssignment.insertMany(users.map((u, i) => ({ userId: u._id, electionId: election._id, pollingStationId: stations[i]!._id, countyId: county._id, constituencyId: cons._id, wardId: ward._id })));
 const tokens = await Promise.all(
   users.map(async (u) => {
     const familyId = crypto.randomUUID();
-    await Session.create({ userId: u._id, familyId, currentTokenHash: crypto.randomBytes(16).toString('hex'), expiresAt: new Date(Date.now() + 3600_000) });
+    await Session.create({ userId: u._id, familyId, currentTokenHash: crypto.randomBytes(16).toString('hex'), expiresAt: new Date(Date.now() + 3600_000), stepUpUntil: new Date(Date.now() + 3600_000) });
     return jwt.sign({ sub: String(u._id), sid: familyId, mfa: false, typ: 'access' }, env.JWT_ACCESS_SECRET, { expiresIn: 3600, issuer: 'northern-iebc' });
   })
 );

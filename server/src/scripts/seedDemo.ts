@@ -61,7 +61,8 @@ export async function seedDemo() {
   await mk('demo-verifier@example.org', 'DEMO Verifier', 'VERIFICATION_OFFICER');
   await mk('demo-verifier2@example.org', 'DEMO Second Verifier', 'VERIFICATION_OFFICER');
   await mk('demo-finance@example.org', 'DEMO Finance Officer', 'FINANCE_OFFICER');
-  const agent = await mk('demo-agent@example.org', 'DEMO Agent', 'AGENT', { agentCode: 'AGT-DEMO0001' });
+  const agent = await mk('demo-agent@example.org', 'DEMO Agent', 'AGENT', { agentCode: 'AGT-DEMO0001', vetting: { status: 'APPROVED', identityChecked: true, phoneChecked: true, accreditationChecked: true, accreditationReference: 'DEMO', note: 'Synthetic demo agent' } });
+  await mk('demo-agent2@example.org', 'DEMO Unapproved Agent', 'AGENT', { agentCode: 'AGT-DEMO0002' });
   await AgentAssignment.updateOne(
     { userId: agent!._id, electionId: election._id, pollingStationId: stations[0]!._id, active: true },
     { $setOnInsert: { countyId: garissa._id, constituencyId: cons!._id, wardId: ward!._id } },

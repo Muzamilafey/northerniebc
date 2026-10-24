@@ -40,7 +40,7 @@ export async function teardownDb() {
 }
 
 let seq = 0;
-export async function createUser(role: Role, opts: { scope?: { countyIds?: string[]; constituencyIds?: string[] }; mfa?: boolean; agentCode?: string } = {}) {
+export async function createUser(role: Role, opts: { scope?: { countyIds?: string[]; constituencyIds?: string[] }; mfa?: boolean; agentCode?: string; vetting?: 'PENDING' | 'APPROVED' | 'REJECTED'; stepUp?: boolean } = {}) {
   pwHash ??= await hashPassword(PASSWORD);
   const secret = authenticator.generateSecret();
   const mfa = opts.mfa ?? role !== 'AGENT';
@@ -53,6 +53,7 @@ export async function createUser(role: Role, opts: { scope?: { countyIds?: strin
     scope: { countyIds: opts.scope?.countyIds ?? [], constituencyIds: opts.scope?.constituencyIds ?? [] },
     agentCode: role === 'AGENT' ? (opts.agentCode ?? `AGT-T${String(seq).padStart(7, '0')}`) : undefined,
     mustChangePassword: false,
+    vetting: { status: opts.vetting ?? (role === 'AGENT' ? 'APPROVED' : 'PENDING') },
     mfa: mfa ? { enabled: true, secretEnc: encrypt(secret), recoveryCodeHashes: [] } : { enabled: false }
   });
   return { user: u, secret, id: String(u._id) };
@@ -73,7 +74,13 @@ export async function login(app: Express, u: { user: { email: string; agentCode?
 export async function as(app: Express, role: Role, opts: Parameters<typeof createUser>[1] = {}) {
   const u = await createUser(role, opts);
   const { token } = await login(app, u);
-  return { ...u, token, auth: { Authorization: `Bearer ${token}` } };
+  const auth = { Authorization: `Bearer ${token}` };
+  // Agents confirm their password before submitting (step-up), as the app does.
+  if (role === 'AGENT' && opts.stepUp !== false) {
+    const r = await request(app).post('/api/agent/confirm-identity').set(auth).send({ password: PASSWORD });
+    if (r.status !== 200 && opts.vetting === undefined) throw new Error(`step-up failed ${r.status}`);
+  }
+  return { ...u, token, auth };
 }
 
 /** A small synthetic election (test fixture only). */

@@ -23,6 +23,13 @@ import {
   Constituency,
   Ward,
   County,
+  CountSession,
+  FormExtraction,
+  FORM_TEMPLATES,
+  Session,
+  TallyEvent,
+  UNDO_REASONS,
+  User,
   type Position
 } from '../../models/index.js';
 import { eligibleCandidates } from '../elections/service.js';
@@ -31,6 +38,13 @@ import { objectId } from '../users/routes.js';
 import { adminDashboard, breakdown, publicStatuses, tally, PUBLIC_DISCLAIMER } from './query.js';
 import { candidateDifferences } from './reconciliation.js';
 import { DECLARATION_TEXT, decide, startReview, submitResult } from './service.js';
+import { assertVettedAgent, getCountSession, recordTallyEvents } from '../counting/service.js';
+import { extractForm, extractionEnabled } from '../extraction/service.js';
+import { verifyPassword } from '../auth/password.js';
+import { recordAuditStandalone } from '../../lib/audit.js';
+import { limiter } from '../../middleware/security.js';
+import { env } from '../../config/env.js';
+import { unauthorized as unauthorizedErr } from '../../lib/errors.js';
 
 const nonNeg = z.number().int().min(0).max(10_000_000);
 const fieldsSchema = z
@@ -57,7 +71,30 @@ const submitSchema = z.object({
   clientCreatedAt: z.coerce.date().optional(),
   clientDeviceId: z.string().max(100).optional(),
   baseRevision: z.number().int().min(1).nullable().default(null),
-  correctionReason: z.string().max(1000).optional()
+  correctionReason: z.string().max(1000).optional(),
+  countSessionId: z.string().uuid().optional()
+});
+
+const tallySchema = z.object({
+  clientSessionId: z.string().uuid(),
+  electionId: objectId,
+  pollingStationId: objectId,
+  position: z.enum(POSITIONS),
+  events: z
+    .array(
+      z.object({
+        seq: z.number().int().min(1),
+        kind: z.enum(['INCREMENT', 'UNDO', 'SET']),
+        candidateId: objectId,
+        undoOfSeq: z.number().int().min(1).optional(),
+        value: z.number().int().min(0).max(10_000_000).optional(),
+        reasonCode: z.enum(UNDO_REASONS).optional(),
+        reason: z.string().max(300).optional(),
+        clientAt: z.coerce.date().optional()
+      })
+    )
+    .min(1)
+    .max(500)
 });
 
 const geoQuery = z
@@ -75,7 +112,42 @@ export function agentRouter() {
   const r = Router();
   const agent = requirePermission('results.submit');
 
+  /** Re-confirms the agent's password; required shortly before submitting a result. */
+  r.post('/confirm-identity', agent, limiter('step-up', { windowMs: 15 * 60_000, limit: 10 }), async (req, res) => {
+    const { password } = parse(z.object({ password: z.string().min(1).max(256) }), req.body);
+    const u = await User.findById(req.user!.id).select('+passwordHash');
+    if (!u || !(await verifyPassword(u.passwordHash, password))) {
+      await recordAuditStandalone({ actor: { id: req.user!.id, role: req.user!.role, ip: req.ip }, action: 'auth.step_up_failed', entityType: 'User', entityId: req.user!.id });
+      throw unauthorizedErr('Incorrect password');
+    }
+    const until = new Date(Date.now() + env.SUBMIT_REAUTH_MINUTES * 60_000);
+    await Session.updateOne({ familyId: req.user!.sessionId }, { $set: { stepUpUntil: until } });
+    await recordAuditStandalone({ actor: { id: req.user!.id, role: req.user!.role, ip: req.ip }, action: 'auth.step_up', entityType: 'User', entityId: req.user!.id });
+    res.json({ confirmedUntil: until });
+  });
+
+  /** Live counting: each "+" tap is sent here immediately (queued on the phone when offline). */
+  r.post('/tally-events', agent, async (req, res) => {
+    const body = parse(tallySchema, req.body);
+    res.json(await recordTallyEvents(req.user!, body, req.ip));
+  });
+
+  r.get('/count-sessions/:clientSessionId', agent, async (req, res) => {
+    res.json({ session: await getCountSession(req.user!, String(req.params.clientSessionId)) });
+  });
+
+  r.post('/form-extract', agent, limiter('form-extract', { windowMs: 60 * 60_000, limit: env.FORM_EXTRACTIONS_PER_HOUR, keyGenerator: (req) => req.user?.id ?? req.ip ?? 'anon' }), async (req, res) => {
+    const body = parse(z.object({ fileId: objectId, electionId: objectId, pollingStationId: objectId, position: z.enum(POSITIONS) }), req.body);
+    await assertVettedAgent(req.user!);
+    const assignment = await AgentAssignment.exists({ userId: req.user!.id, electionId: body.electionId, pollingStationId: body.pollingStationId, active: true });
+    if (!assignment) throw forbidden('You are not assigned to this polling station');
+    const f = await StoredFile.findOne({ _id: body.fileId, uploadedBy: req.user!.id, purpose: 'RESULT_EVIDENCE' }).lean();
+    if (!f) throw notFound('Upload the form photo first');
+    res.json(await extractForm({ ...body, requestedBy: req.user!.id }));
+  });
+
   r.get('/assignments', agent, async (req, res) => {
+    const me = await User.findById(req.user!.id).select('vetting').lean();
     const assignments = await AgentAssignment.find({ userId: req.user!.id, active: true }).lean();
     const out = [];
     for (const a of assignments) {
@@ -91,9 +163,12 @@ export function agentRouter() {
       for (const p of election.positions.filter((x) => x.enabled)) {
         const candidates = await eligibleCandidates(station, p.position as Position);
         const sub = await ResultSubmission.findOne({ electionId: election._id, pollingStationId: station._id, position: p.position, agentId: req.user!.id }).lean();
+        const tpl = FORM_TEMPLATES[p.position as Position];
         ballots.push({
           position: p.position,
           label: POSITION_LABELS[p.position as Position],
+          formCode: p.formCode ?? tpl.formCode,
+          formTitle: p.formCode && p.formCode !== tpl.formCode ? `Form ${p.formCode}` : tpl.title,
           formReferenceLabel: p.formReferenceLabel,
           requiredFields: p.requiredFields,
           rules: p.rules,
@@ -112,7 +187,14 @@ export function agentRouter() {
         ballots
       });
     }
-    res.json({ assignments: out, declarationText: DECLARATION_TEXT, serverTime: new Date() });
+    res.json({
+      assignments: out,
+      declarationText: DECLARATION_TEXT,
+      serverTime: new Date(),
+      vettingStatus: me?.vetting?.status ?? 'PENDING',
+      requireSubmitReauth: env.REQUIRE_SUBMIT_REAUTH,
+      aiFormReading: extractionEnabled()
+    });
   });
 
   r.post('/evidence', agent, upload.single('file'), async (req, res) => {
@@ -216,13 +298,27 @@ export function verificationRouter() {
       PendingApproval.find({ kind: 'RESULT_CORRECTION', entityId: sub.submissionId }).sort({ createdAt: -1 }).lean()
     ]);
     const current = revisions.find((r) => r.revision === sub.currentRevision)!;
+    const countSession = current.countSessionId ? await CountSession.findOne({ clientSessionId: current.countSessionId }).lean() : null;
+    const tallyEvents = countSession ? await TallyEvent.find({ sessionId: countSession._id, $or: [{ kind: { $ne: 'INCREMENT' } }, { 'flags.0': { $exists: true } }] }).sort({ seq: 1 }).limit(500).lean() : [];
+    const extractions = await FormExtraction.find({ fileId: { $in: current.evidenceFileIds.map((f) => (f as unknown as { _id: unknown })._id) } }).sort({ createdAt: -1 }).lean();
     const comparisons = await Promise.all(
       siblings.map(async (o) => {
         const orev = await SubmissionRevision.findOne({ submissionId: o.submissionId, revision: o.currentRevision }).lean();
         return { submission: o, revision: orev, differences: candidateDifferences(current.candidateVotes, orev?.candidateVotes ?? []) };
       })
     );
-    res.json({ submission: sub, revisions, decisions, stationResult, comparisons, candidates, approvals });
+    res.json({ submission: sub, revisions, decisions, stationResult, comparisons, candidates, approvals, countSession, tallyEvents, extractions, aiFormReading: extractionEnabled() });
+  });
+
+  /** Reviewers can run the AI reader on a submission's attached form. */
+  r.post('/submissions/:submissionId/extract', verify, limiter('review-extract', { windowMs: 60 * 60_000, limit: 120 }), async (req, res) => {
+    const { fileId } = parse(z.object({ fileId: objectId }), req.body);
+    const sub = await ResultSubmission.findOne({ submissionId: String(req.params.submissionId) }).lean();
+    if (!sub) throw notFound();
+    if (!inScope(req.user!, sub)) throw forbidden();
+    const rev = await SubmissionRevision.findOne({ submissionId: sub.submissionId, evidenceFileIds: fileId }).lean();
+    if (!rev) throw badRequest('That file is not attached to this submission');
+    res.json(await extractForm({ fileId, electionId: String(sub.electionId), pollingStationId: String(sub.pollingStationId), position: sub.position as Position, requestedBy: req.user!.id }));
   });
 
   r.post('/submissions/:submissionId/start-review', verify, async (req, res) => {

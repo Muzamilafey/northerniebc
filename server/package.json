@@ -19,6 +19,7 @@
     "load:test": "tsx --env-file=.env src/scripts/loadTest.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "@socket.io/redis-adapter": "8.3.0",
     "argon2": "0.41.1",
     "cookie-parser": "1.4.7",
@@ -41,7 +42,7 @@
     "qrcode": "1.5.4",
     "rate-limit-redis": "4.2.0",
     "socket.io": "4.8.1",
-    "zod": "3.24.1"
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/autocannon": "7.12.6",

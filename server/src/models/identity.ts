@@ -38,6 +38,20 @@ const userSchema = new Schema(
       pendingSecretEnc: { type: String, select: false },
       recoveryCodeHashes: { type: [String], select: false, default: [] }
     },
+    /**
+     * Agent vetting. New agents are PENDING and cannot count or submit until an administrator
+     * other than the one who created the account confirms their identity and accreditation.
+     */
+    vetting: {
+      status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+      identityChecked: { type: Boolean, default: false },
+      phoneChecked: { type: Boolean, default: false },
+      accreditationChecked: { type: Boolean, default: false },
+      accreditationReference: { type: String, maxlength: 200 },
+      note: { type: String, maxlength: 1000 },
+      decidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      decidedAt: { type: Date }
+    },
     mustChangePassword: { type: Boolean, default: true },
     failedLoginCount: { type: Number, default: 0 },
     lockedUntil: { type: Date },
@@ -62,6 +76,8 @@ const sessionSchema = new Schema(
     currentTokenHash: { type: String, required: true },
     previousTokenHashes: { type: [String], default: [] },
     mfaVerified: { type: Boolean, default: false },
+    /** Set when the user re-enters their password; required for result submission. */
+    stepUpUntil: { type: Date },
     userAgent: { type: String, maxlength: 300 },
     ip: { type: String },
     lastUsedAt: { type: Date, default: Date.now },

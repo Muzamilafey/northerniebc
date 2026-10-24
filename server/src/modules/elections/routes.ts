@@ -10,6 +10,7 @@ import {
   Constituency,
   County,
   Election,
+  FORM_TEMPLATES,
   PollingStation,
   POSITION_LABELS,
   POSITION_SCOPE,
@@ -24,6 +25,7 @@ import { objectId } from '../users/routes.js';
 const positionConfig = z.object({
   position: z.enum(POSITIONS),
   enabled: z.boolean().default(true),
+  formCode: z.string().regex(/^[0-9]{2}[A-Z]$/).optional(),
   formReferenceLabel: z.string().max(120).default('Official results form reference'),
   requiredFields: z.array(z.enum(RECONCILIATION_FIELDS)).default([]),
   rules: z.array(z.enum(RECONCILIATION_RULES)).default(['CANDIDATE_SUM_EQUALS_VALID']),
@@ -111,6 +113,10 @@ export function electionsAdminRouter() {
   const r = Router();
   const manage = requirePermission('elections.manage');
   const actor = (req: { user?: { id: string; role: string; fullName: string } ; ip?: string }) => ({ id: req.user!.id, role: req.user!.role, label: req.user!.fullName, ip: req.ip });
+
+  r.get('/form-templates', requirePermission('elections.manage'), (_req, res) => {
+    res.json({ templates: FORM_TEMPLATES, note: 'Starting templates only. Confirm each against the forms gazetted for the specific election.' });
+  });
 
   r.get('/elections', requirePermission('results.monitor', 'elections.manage', 'agents.manage'), async (_req, res) => {
     res.json({ items: await Election.find().sort({ electionDate: -1 }).lean() });

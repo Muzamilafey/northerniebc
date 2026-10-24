@@ -71,12 +71,16 @@ export function usersRouter() {
   const canManage = requirePermission('users.manage', 'agents.manage');
 
   r.get('/users', canManage, async (req, res) => {
-    const q = parse(z.object({ role: z.enum(ROLES).optional(), status: z.enum(['ACTIVE', 'SUSPENDED', 'REVOKED']).optional(), q: z.string().max(100).optional() }).passthrough(), req.query);
+    const q = parse(z.object({ role: z.enum(ROLES).optional(), status: z.enum(['ACTIVE', 'SUSPENDED', 'REVOKED']).optional(), vetting: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(), q: z.string().max(100).optional() }).passthrough(), req.query);
     const { page, limit, skip } = pageParams(req.query);
     const actor = req.user!;
     const filter: Record<string, unknown> = {};
     if (q.role) filter.role = q.role;
     if (q.status) filter.status = q.status;
+    if (q.vetting) {
+      filter.role = 'AGENT';
+      filter['vetting.status'] = q.vetting;
+    }
     if (q.q) filter.$or = [{ fullName: new RegExp(escapeRegex(q.q), 'i') }, { email: new RegExp(escapeRegex(q.q), 'i') }, { agentCode: q.q.toUpperCase() }];
     if (actor.role === 'COUNTY_ADMIN' || actor.role === 'CONSTITUENCY_SUPERVISOR') {
       const scopeKey = actor.role === 'COUNTY_ADMIN' ? 'countyId' : 'constituencyId';
@@ -204,6 +208,49 @@ export function usersRouter() {
   statusAction('suspend');
   statusAction('reactivate');
   statusAction('revoke');
+
+  /**
+   * Agent vetting: an administrator other than the account's creator confirms the agent's
+   * identity, phone and accreditation before the agent may count or submit results.
+   */
+  r.post('/users/:id/vetting', requirePermission('users.manage'), async (req, res) => {
+    const actor = req.user!;
+    const body = parse(
+      z.object({
+        decision: z.enum(['APPROVE', 'REJECT']),
+        identityChecked: z.boolean().default(false),
+        phoneChecked: z.boolean().default(false),
+        accreditationChecked: z.boolean().default(false),
+        accreditationReference: z.string().max(200).optional(),
+        note: z.string().min(5).max(1000)
+      }),
+      req.body
+    );
+    const target = await User.findById(String(req.params.id));
+    if (!target || target.role !== 'AGENT') throw notFound('Agent not found');
+    if (!(await canManageUser(actor, target))) throw forbidden();
+    if (String(target.createdBy) === actor.id) throw forbidden('An administrator other than the one who created this agent must approve it');
+    if (body.decision === 'APPROVE' && !(body.identityChecked && body.phoneChecked && body.accreditationChecked && body.accreditationReference)) {
+      throw badRequest('Confirm identity, phone and accreditation (with its reference) before approving');
+    }
+    const before = target.vetting?.status;
+    await withTransaction(async (s) => {
+      target.set('vetting', {
+        status: body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        identityChecked: body.identityChecked,
+        phoneChecked: body.phoneChecked,
+        accreditationChecked: body.accreditationChecked,
+        accreditationReference: body.accreditationReference,
+        note: body.note,
+        decidedBy: actor.id,
+        decidedAt: new Date()
+      });
+      await target.save({ session: s });
+      await recordAudit(s, { actor: actorOf(actor, req.ip), action: body.decision === 'APPROVE' ? 'agent.approved' : 'agent.rejected', entityType: 'User', entityId: String(target._id), before: { vetting: before }, after: { vetting: target.vetting?.status }, meta: { note: body.note, accreditationReference: body.accreditationReference } });
+    });
+    if (body.decision === 'REJECT') await revokeAllSessions(String(target._id), 'agent_rejected');
+    res.json({ vetting: target.vetting });
+  });
 
   r.post('/users/:id/revoke-sessions', canManage, async (req, res) => {
     const target = await User.findById(String(req.params.id));
