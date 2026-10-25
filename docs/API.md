@@ -69,6 +69,7 @@ Audit log: `GET /audit-log`, `GET /audit-log/verify`. Site: `POST /updates`.
 - `POST /admin/counties`, `PATCH /admin/counties/:id` (code immutable) — `counties.manage` (SUPER_ADMIN).
 - `GET /admin/elections/:id/areas` — constituencies with their wards.
 - `POST /admin/elections/:id/areas/load-official` — idempotently loads the IEBC 2022 constituency and ward schedule for the five counties; returns `{constituenciesAdded, wardsAdded, alreadyPresent, conflicts}`.
+- `POST /admin/elections/:id/stations/load-official` — idempotently loads the 2,384 IEBC 2022 polling stations (and any missing areas); returns `{stationsAdded, alreadyPresent, registeredVotersAdded, areas, conflicts}`.
 - `POST /admin/elections/:id/constituencies` `{countyId, code (3 digits), name}`, `POST /admin/elections/:id/wards` `{constituencyId, code (4 digits), name}`.
 - `PATCH /admin/constituencies/:id`, `PATCH /admin/wards/:id` `{name, reason}` — spelling corrections only.
 - Logos and photos: `POST /api/files` multipart with `purpose` = `COUNTY_LOGO` | `PARTY_LOGO` | `CANDIDATE_PHOTO` (images only, 2 MB, public).

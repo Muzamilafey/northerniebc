@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, seedElection, setupDb, teardownDb } from './helpers.js';
-import { Candidate, Ward } from '../src/models/index.js';
+import { Candidate, Constituency, PollingStation, Ward } from '../src/models/index.js';
 import { env } from '../src/config/env.js';
 import { parsePastedList } from '../src/modules/parties/registry.js';
 import { aiEnabled } from '../src/integrations/ai.js';
@@ -227,5 +227,33 @@ describe('adding a polling station by hand', () => {
     const list = await request(app).get(`/api/public/elections/${eid}/stations`).query({ wardId: String(ward!._id) });
     expect(list.body.items.map((s: { code: string }) => s.code)).toContain('011049024200101');
     expect((await request(app).post(`/api/admin/elections/${eid}/stations`).set((await as(app, 'AGENT')).auth).send({ wardId: String(ward!._id), code: 'X123', name: 'Nope' })).status).toBe(403);
+  });
+});
+
+describe('official polling stations', () => {
+  it('loads all 2,384 IEBC 2022 stations once, matching the published totals', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    const eid = String(fx.election._id);
+    const r = await request(app).post(`/api/admin/elections/${eid}/stations/load-official`).set(sa.auth);
+    expect(r.status).toBe(200);
+    // (An earlier test adds a duplicate 'MARSABIT COUNTY' on purpose; only station/ward problems matter here.)
+    expect(r.body.conflicts.filter((c: string) => /Station|Ward/.test(c))).toEqual([]);
+    expect(r.body.stationsAdded + r.body.alreadyPresent).toBe(2384);
+    const again = await request(app).post(`/api/admin/elections/${eid}/stations/load-official`).set(sa.auth);
+    expect(again.body).toMatchObject({ stationsAdded: 0, alreadyPresent: 2384 });
+
+    // Exclude the sample station added by hand in an earlier test.
+    const official = (await PollingStation.find({ electionId: fx.election._id, code: /^0(0[7-9]|1[01])\d{12}$/ }).lean()).filter((p) => p.name !== 'Sample Primary School');
+    expect(official).toHaveLength(2384);
+    // Totals published by the IEBC for the 2022 register (county and ward level).
+    const sum = (prefix: string) => official.filter((p) => p.code.startsWith(prefix)).reduce((n, p) => n + (p.registeredVoters ?? 0), 0);
+    expect({ garissa: sum('007'), wajir: sum('008'), mandera: sum('009'), marsabit: sum('010'), isiolo: sum('011') }).toEqual({ garissa: 201473, wajir: 207758, mandera: 217030, marsabit: 166912, isiolo: 89504 });
+    const hulugho = await Ward.findOne({ electionId: fx.election._id, code: '0157' }).lean();
+    expect(official.filter((p) => String(p.wardId) === String(hulugho!._id)).reduce((n, p) => n + (p.registeredVoters ?? 0), 0)).toBe(6266);
+    // Stations are linked to the right constituency and named by stream where a centre has several.
+    const gss = official.find((p) => p.code === '007027013100102')!;
+    expect(gss.name).toBe('GARISSA SECONDARY SCHOOL — stream 2');
+    expect(String(gss.constituencyId)).toBe(String((await Constituency.findOne({ electionId: fx.election._id, code: '027' }).lean())!._id));
+    expect((await request(app).post(`/api/admin/elections/${eid}/stations/load-official`).set((await as(app, 'REGIONAL_ADMIN')).auth)).status).toBe(403);
   });
 });

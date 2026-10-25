@@ -85,8 +85,8 @@ export default function CountiesAdmin() {
   );
 }
 
-interface Ward { _id: string; code: string; name: string }
-interface Constituency { _id: string; code: string; name: string; countyId: string; wards: Ward[] }
+interface Ward { _id: string; code: string; name: string; stations?: number; registeredVoters?: number }
+interface Constituency { _id: string; code: string; name: string; countyId: string; wards: Ward[]; stations?: number; registeredVoters?: number }
 interface LoadSummary { constituenciesAdded: number; wardsAdded: number; alreadyPresent: number; conflicts: string[] }
 
 /** Constituencies and wards belong to an election (boundaries can change between elections). */
@@ -118,6 +118,13 @@ function AreasSection({ counties }: { counties: County[] }) {
       const r = await api<LoadSummary>(`/admin/elections/${eid}/areas/load-official`, { method: 'POST' });
       return `Loaded from the IEBC 2022 ward schedule: ${r.constituenciesAdded} constituencies and ${r.wardsAdded} wards added, ${r.alreadyPresent} already present.${r.conflicts.length ? ` Conflicts: ${r.conflicts.join('; ')}` : ''}`;
     });
+  const loadStations = async () => {
+    if (!(await dialog.confirm({ title: 'Load the official polling stations?', message: 'Adds the 2,384 polling stations of the five counties from the IEBC 2022 register (with registered voters), and any missing constituencies or wards. Stations already here are not changed.', confirmLabel: 'Load polling stations', tone: 'accent' }))) return;
+    await run(async () => {
+      const r = await api<{ stationsAdded: number; alreadyPresent: number; registeredVotersAdded: number; areas: { constituenciesAdded: number; wardsAdded: number }; conflicts: string[] }>(`/admin/elections/${eid}/stations/load-official`, { method: 'POST' });
+      return `Loaded from the IEBC 2022 register: ${r.stationsAdded.toLocaleString()} polling stations added (${r.registeredVotersAdded.toLocaleString()} registered voters), ${r.alreadyPresent.toLocaleString()} already present.${r.areas.wardsAdded ? ` Also added ${r.areas.constituenciesAdded} constituencies and ${r.areas.wardsAdded} wards.` : ''}${r.conflicts.length ? ` Check: ${r.conflicts.slice(0, 5).join('; ')}${r.conflicts.length > 5 ? ` and ${r.conflicts.length - 5} more` : ''}` : ''}`;
+    });
+  };
   const addConstituency = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -170,12 +177,14 @@ function AreasSection({ counties }: { counties: County[] }) {
           <div className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Election"><select className="input" value={eid} onChange={(e) => setElectionId(e.target.value)}>{el.items.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}</select></Field>
             <Field label="Show county"><select className="input" value={countyId} onChange={(e) => setCountyId(e.target.value)}><option value="">All counties</option>{counties.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
-            <div className="flex items-end sm:col-span-2">
-              <button className="btn-primary" disabled={busy || !eid} onClick={loadOfficial}>Load official IEBC list (24 constituencies, 120 wards)</button>
+            <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
+              <button className="btn-outline" disabled={busy || !eid} onClick={loadOfficial}>Load constituencies &amp; wards (24 / 120)</button>
+              <button className="btn-accent" disabled={busy || !eid} onClick={() => void loadStations()}>Load polling stations (2,384)</button>
             </div>
             <p className="text-xs text-gray-500 sm:col-span-2 lg:col-span-4">
-              Source: IEBC, <a className="link" href="https://www.iebc.or.ke/docs/rov_per_caw.pdf" target="_blank" rel="noreferrer">Registered Voters per County Assembly Ward, 2022 General Election</a>. Loading is safe to repeat — existing entries are never overwritten.
+              Source: IEBC 2022 General Election — <a className="link" href="https://www.iebc.or.ke/docs/rov_per_caw.pdf" target="_blank" rel="noreferrer">registered voters per ward</a> and <a className="link" href="https://www.iebc.or.ke/docs/rov_per_polling_station.pdf" target="_blank" rel="noreferrer">per polling station</a>. Station totals match the IEBC's published county and ward totals. Loading is safe to repeat — existing entries are never overwritten.
             </p>
+            {total > 0 && <p className="text-sm text-gray-700 sm:col-span-2 lg:col-span-4"><strong>{(areas.data?.items ?? []).reduce((n, c) => n + (c.stations ?? 0), 0).toLocaleString()}</strong> polling stations · <strong>{(areas.data?.items ?? []).reduce((n, c) => n + (c.registeredVoters ?? 0), 0).toLocaleString()}</strong> registered voters loaded for this election.</p>}
           </div>
           {msg.ok && <Success>{msg.ok}</Success>}
           {msg.err && <ErrorBox error={msg.err} />}
@@ -194,7 +203,7 @@ function AreasSection({ counties }: { counties: County[] }) {
               <li key={c._id} className="card p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <button className="flex-1 text-left" aria-expanded={open === c._id} onClick={() => setOpen(open === c._id ? null : c._id)}>
-                    <span className="font-semibold">{c.name}</span> <span className="text-xs text-gray-500">· code {c.code} · {countyName(c.countyId)} · {c.wards.length} wards</span>
+                    <span className="font-semibold">{c.name}</span> <span className="text-xs text-gray-500">· code {c.code} · {countyName(c.countyId)} · {c.wards.length} wards · {(c.stations ?? 0).toLocaleString()} stations · {(c.registeredVoters ?? 0).toLocaleString()} voters</span>
                   </button>
                   <button className="link text-xs" onClick={() => rename('constituencies', c)}>Correct name</button>
                 </div>
@@ -203,7 +212,7 @@ function AreasSection({ counties }: { counties: County[] }) {
                     <ul className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
                       {c.wards.map((w) => (
                         <li key={w._id} className="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-sm">
-                          <span>{w.name} <span className="text-xs text-gray-500">{w.code}</span></span>
+                          <span>{w.name} <span className="text-xs text-gray-500">{w.code} · {w.stations ?? 0} stations · {(w.registeredVoters ?? 0).toLocaleString()} voters</span></span>
                           <button className="link text-xs" onClick={() => rename('wards', w)}>Correct</button>
                         </li>
                       ))}

@@ -280,12 +280,12 @@ function AssignAgent({ agent, onClose }: { agent: UserRow; onClose: () => void }
         <Field label="County"><select className="input" value={countyId} onChange={(e) => { setCountyId(e.target.value); setConsId(''); setWardId(''); setStationId(''); }}><option value="">Choose county…</option>{counties?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
         <Field label="Constituency"><select className="input" value={consId} disabled={!countyId} onChange={(e) => { setConsId(e.target.value); setWardId(''); setStationId(''); }}><option value="">{countyId ? 'Choose constituency…' : 'Choose a county first'}</option>{consts?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
         <Field label="Ward"><select className="input" value={wardId} disabled={!consId} onChange={(e) => { setWardId(e.target.value); setStationId(''); }}><option value="">{consId ? 'Choose ward…' : 'Choose a constituency first'}</option>{wards?.items.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</select></Field>
-        <Field label="Polling station">
+        <div className="sm:col-span-2"><Field label="Polling station">
           <select className="input" value={stationId} disabled={!wardId || !stations.data?.items.length} onChange={(e) => setStationId(e.target.value)}>
             <option value="">{!wardId ? 'Choose a ward first' : stations.data?.items.length ? 'Choose station…' : 'No stations in this ward'}</option>
-            {stations.data?.items.map((s) => <option key={s._id} value={s._id}>{s.code} — {s.name}</option>)}
+            {stations.data?.items.map((s) => <option key={s._id} value={s._id}>{s.name} · {s.code}{s.registeredVoters != null ? ` · ${s.registeredVoters} voters` : ''}</option>)}
           </select>
-        </Field>
+        </Field></div>
       </div>
       {wardId && stations.data && stations.data.items.length === 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

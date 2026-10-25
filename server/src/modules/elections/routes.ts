@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { Router } from 'express';
 import { z } from 'zod';
 import { withTransaction } from '../../db/mongo.js';
@@ -6,6 +7,14 @@ import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { parse } from '../../lib/http.js';
 import { requirePermission } from '../../middleware/auth.js';
 import { AREAS, AREAS_SOURCE } from '../../data/areas.js';
+import { STATIONS_2022 } from '../../data/stations2022.js';
+
+const STATIONS_SOURCE = {
+  name: 'IEBC — Register of Voters per Polling Station, 2022 General Election',
+  publisher: 'Independent Electoral and Boundaries Commission',
+  url: 'https://www.iebc.or.ke/docs/rov_per_polling_station.pdf',
+  kind: 'ELECTION_PUBLICATION' as const
+};
 import { intakeState } from './intake.js';
 import { COUNTIES } from '../../scripts/seedReference.js';
 import {
@@ -318,58 +327,65 @@ export function electionsAdminRouter() {
   // ---- Constituencies & wards (per election) ----
   r.get('/elections/:id/areas', requirePermission('counties.manage', 'candidates.manage'), async (req, res) => {
     const electionId = String(req.params.id);
-    const [cons, wards] = await Promise.all([
+    const [cons, wards, counts] = await Promise.all([
       Constituency.find({ electionId }).sort({ code: 1 }).select('code name countyId').lean(),
-      Ward.find({ electionId }).sort({ code: 1 }).select('code name constituencyId').lean()
+      Ward.find({ electionId }).sort({ code: 1 }).select('code name constituencyId').lean(),
+      PollingStation.aggregate<{ _id: unknown; n: number; voters: number }>([{ $match: { electionId: new Types.ObjectId(electionId), active: true } }, { $group: { _id: '$wardId', n: { $sum: 1 }, voters: { $sum: { $ifNull: ['$registeredVoters', 0] } } } }])
     ]);
-    res.json({ items: cons.map((c) => ({ ...c, wards: wards.filter((w) => String(w.constituencyId) === String(c._id)) })) });
+    const byWard = new Map(counts.map((c) => [String(c._id), c]));
+    res.json({
+      items: cons.map((c) => {
+        const ws = wards.filter((w) => String(w.constituencyId) === String(c._id)).map((w) => ({ ...w, stations: byWard.get(String(w._id))?.n ?? 0, registeredVoters: byWard.get(String(w._id))?.voters ?? 0 }));
+        return { ...c, wards: ws, stations: ws.reduce((n, w) => n + w.stations, 0), registeredVoters: ws.reduce((n, w) => n + w.registeredVoters, 0) };
+      })
+    });
   });
 
   r.post('/elections/:id/areas/load-official', requirePermission('counties.manage'), async (req, res) => {
     const election = await Election.findById(String(req.params.id)).lean();
     if (!election) throw notFound('Election not found');
-    const summary = { countiesAdded: 0, constituenciesAdded: 0, wardsAdded: 0, alreadyPresent: 0, conflicts: [] as string[] };
-    await withTransaction(async (s) => {
-      // Find each covered county by its official code, or by name when it was entered by hand
-      // ("ISIOLO COUNTY" matches Isiolo); create it if it is missing.
-      const existing = await County.find().session(s).lean();
-      const norm = (n: string) => n.toLowerCase().replace(/\bcounty\b/g, '').replace(/[^a-z]/g, '');
-      const counties: { _id: unknown; code: string }[] = [];
-      for (const ref of COUNTIES) {
-        const c = existing.find((x) => x.code === ref.code) ?? existing.find((x) => norm(x.name) === norm(ref.name));
-        if (c && c.code !== ref.code) summary.conflicts.push(`${c.name} has code ${c.code}; the official IEBC code is ${ref.code}`);
-        for (const d of existing) if (d !== c && norm(d.name) === norm(ref.name)) summary.conflicts.push(`"${d.name}" (code ${d.code}) looks like a duplicate of ${ref.name} ${ref.code}; areas were loaded under ${c?.name ?? ref.name}`);
-        if (c) counties.push({ _id: c._id, code: ref.code });
-        else {
-          const [doc] = await County.create([ref], { session: s });
-          counties.push({ _id: doc!._id, code: ref.code });
-          summary.countiesAdded++;
-        }
-      }
+    const summary = await withTransaction(async (s) => {
+      const sum = await loadOfficialAreas(election._id, s);
+      await recordAudit(s, { actor: actor(req), action: 'areas.loaded', entityType: 'Election', entityId: String(election._id), after: { source: AREAS_SOURCE.url, ...sum } });
+      return sum;
+    });
+    res.json(summary);
+  });
+
+  /** Loads the 2,384 polling stations of the IEBC 2022 register (loading any missing areas first). Never overwrites. */
+  r.post('/elections/:id/stations/load-official', requirePermission('counties.manage'), async (req, res) => {
+    const election = await Election.findById(String(req.params.id)).lean();
+    if (!election) throw notFound('Election not found');
+    const summary = await withTransaction(async (s) => {
+      const areas = await loadOfficialAreas(election._id, s);
       const source = await DataSource.findOneAndUpdate(
-        { url: AREAS_SOURCE.url },
-        { $setOnInsert: { ...AREAS_SOURCE, retrievedAt: new Date(), verificationStatus: 'REVIEWED', notes: 'Constituency and county assembly ward codes for the five covered counties.' } },
+        { url: STATIONS_SOURCE.url },
+        { $setOnInsert: { ...STATIONS_SOURCE, retrievedAt: new Date(), verificationStatus: 'REVIEWED', notes: 'Polling stations of the five covered counties; see server/src/data/README.md for extraction and checks.' } },
         { upsert: true, new: true, session: s }
       );
-      for (const county of counties) {
-        for (const a of AREAS[county.code] ?? []) {
-          let cons = await Constituency.findOne({ electionId: election._id, code: a.code }).session(s);
-          if (cons && String(cons.countyId) !== String(county._id)) { summary.conflicts.push(`Constituency ${a.code} exists under another county`); continue; }
-          if (cons) summary.alreadyPresent++;
-          else {
-            [cons] = await Constituency.create([{ electionId: election._id, countyId: county._id, code: a.code, name: a.name, sourceId: source!._id }], { session: s });
-            summary.constituenciesAdded++;
-          }
-          for (const [code, name] of a.wards) {
-            const w = await Ward.findOne({ electionId: election._id, code }).session(s).lean();
-            if (w && String(w.constituencyId) !== String(cons!._id)) { summary.conflicts.push(`Ward ${code} exists under another constituency`); continue; }
-            if (w) { summary.alreadyPresent++; continue; }
-            await Ward.create([{ electionId: election._id, countyId: county._id, constituencyId: cons!._id, code, name, sourceId: source!._id }], { session: s });
-            summary.wardsAdded++;
-          }
+      const wards = new Map((await Ward.find({ electionId: election._id }).session(s).lean()).map((w) => [w.code, w]));
+      const existing = new Map((await PollingStation.find({ electionId: election._id }).select('code wardId').session(s).lean()).map((p) => [p.code, p]));
+      const streams = new Map<string, number>();
+      for (const [code] of STATIONS_2022) streams.set(code.slice(0, 13), (streams.get(code.slice(0, 13)) ?? 0) + 1);
+      const docs = [];
+      const conflicts: string[] = [...areas.conflicts];
+      let alreadyPresent = 0;
+      for (const [code, name, registeredVoters] of STATIONS_2022) {
+        const ward = wards.get(code.slice(6, 10));
+        if (!ward) { conflicts.push(`Ward ${code.slice(6, 10)} for station ${code} is missing`); continue; }
+        const have = existing.get(code);
+        if (have) {
+          if (String(have.wardId) !== String(ward._id)) conflicts.push(`Station ${code} exists under another ward`);
+          else alreadyPresent++;
+          continue;
         }
+        const stream = Number(code.slice(13));
+        docs.push({ electionId: election._id, countyId: ward.countyId, constituencyId: ward.constituencyId, wardId: ward._id, code, name: (streams.get(code.slice(0, 13)) ?? 1) > 1 ? `${name} — stream ${stream}` : name, registeredVoters, sourceId: source!._id });
       }
-      await recordAudit(s, { actor: actor(req), action: 'areas.loaded', entityType: 'Election', entityId: String(election._id), after: { source: AREAS_SOURCE.url, ...summary } });
+      if (docs.length) await PollingStation.insertMany(docs, { session: s });
+      const sum = { stationsAdded: docs.length, alreadyPresent, registeredVotersAdded: docs.reduce((n, d) => n + d.registeredVoters, 0), areas: { constituenciesAdded: areas.constituenciesAdded, wardsAdded: areas.wardsAdded }, conflicts };
+      await recordAudit(s, { actor: actor(req), action: 'stations.loaded', entityType: 'Election', entityId: String(election._id), after: { source: STATIONS_SOURCE.url, ...sum, conflicts: conflicts.slice(0, 50) } });
+      return sum;
     });
     res.json(summary);
   });
@@ -473,4 +489,53 @@ export async function validateCandidateScope(electionId: string, position: Posit
         ? await Constituency.exists({ _id: scopeRefId, electionId })
         : await Ward.exists({ _id: scopeRefId, electionId });
   if (!exists) throw badRequest(`Unknown ${scopeType.toLowerCase()} for this election`);
+}
+
+/**
+ * Adds the official constituencies and wards (data/areas.ts) to an election inside a transaction.
+ * Counties are matched by code, then by name, and created if missing. Nothing is overwritten.
+ */
+async function loadOfficialAreas(electionId: unknown, s: import('mongoose').ClientSession) {
+  const election = { _id: electionId };
+  const summary = { countiesAdded: 0, constituenciesAdded: 0, wardsAdded: 0, alreadyPresent: 0, conflicts: [] as string[] };
+  // Find each covered county by its official code, or by name when it was entered by hand
+  // ("ISIOLO COUNTY" matches Isiolo); create it if it is missing.
+  const existing = await County.find().session(s).lean();
+  const norm = (n: string) => n.toLowerCase().replace(/\bcounty\b/g, '').replace(/[^a-z]/g, '');
+  const counties: { _id: unknown; code: string }[] = [];
+  for (const ref of COUNTIES) {
+    const c = existing.find((x) => x.code === ref.code) ?? existing.find((x) => norm(x.name) === norm(ref.name));
+    if (c && c.code !== ref.code) summary.conflicts.push(`${c.name} has code ${c.code}; the official IEBC code is ${ref.code}`);
+    for (const d of existing) if (d !== c && norm(d.name) === norm(ref.name)) summary.conflicts.push(`"${d.name}" (code ${d.code}) looks like a duplicate of ${ref.name} ${ref.code}; areas were loaded under ${c?.name ?? ref.name}`);
+    if (c) counties.push({ _id: c._id, code: ref.code });
+    else {
+      const [doc] = await County.create([ref], { session: s });
+      counties.push({ _id: doc!._id, code: ref.code });
+      summary.countiesAdded++;
+    }
+  }
+  const source = await DataSource.findOneAndUpdate(
+    { url: AREAS_SOURCE.url },
+    { $setOnInsert: { ...AREAS_SOURCE, retrievedAt: new Date(), verificationStatus: 'REVIEWED', notes: 'Constituency and county assembly ward codes for the five covered counties.' } },
+    { upsert: true, new: true, session: s }
+  );
+  for (const county of counties) {
+    for (const a of AREAS[county.code] ?? []) {
+      let cons = await Constituency.findOne({ electionId: election._id, code: a.code }).session(s);
+      if (cons && String(cons.countyId) !== String(county._id)) { summary.conflicts.push(`Constituency ${a.code} exists under another county`); continue; }
+      if (cons) summary.alreadyPresent++;
+      else {
+        [cons] = await Constituency.create([{ electionId: election._id, countyId: county._id, code: a.code, name: a.name, sourceId: source!._id }], { session: s });
+        summary.constituenciesAdded++;
+      }
+      for (const [code, name] of a.wards) {
+        const w = await Ward.findOne({ electionId: election._id, code }).session(s).lean();
+        if (w && String(w.constituencyId) !== String(cons!._id)) { summary.conflicts.push(`Ward ${code} exists under another constituency`); continue; }
+        if (w) { summary.alreadyPresent++; continue; }
+        await Ward.create([{ electionId: election._id, countyId: county._id, constituencyId: cons!._id, code, name, sourceId: source!._id }], { session: s });
+        summary.wardsAdded++;
+      }
+    }
+  }
+  return summary;
 }

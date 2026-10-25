@@ -29,7 +29,7 @@ export const AREAS: Record<string, Area[]> = {
     { code: '033', name: 'Wajir North', wards: [['0161', 'Gurar'], ['0162', 'Bute'], ['0163', 'Korondile'], ['0164', 'Malkagufu'], ['0165', 'Batalu'], ['0166', 'Danaba'], ['0167', 'Godoma']] },
     { code: '034', name: 'Wajir East', wards: [['0168', 'Wagberi'], ['0169', 'Township'], ['0170', 'Barwago'], ['0171', 'Khorof/Harar']] },
     { code: '035', name: 'Tarbaj', wards: [['0172', 'Elben'], ['0173', 'Sarman'], ['0174', 'Tarbaj'], ['0175', 'Wargadud']] },
-    { code: '036', name: 'Wajir West', wards: [['0176', 'Arbajahan'], ['0177', 'Hadado/Athibohol'], ['0178', 'Ademasajide'], ['0179', 'Ganyure/Wagalla']] },
+    { code: '036', name: 'Wajir West', wards: [['0176', 'Arbajahan'], ['0177', 'Hadado/Athibohol'], ['0178', 'Adamasajide'], ['0179', 'Ganyure/Wagalla']] },
     { code: '037', name: 'Eldas', wards: [['0180', 'Eldas'], ['0181', 'Della'], ['0182', 'Lakoley South/Basir'], ['0183', 'Elnur/Tula Tula']] },
     { code: '038', name: 'Wajir South', wards: [['0184', 'Benane'], ['0185', 'Burder'], ['0186', 'Dadaja Bulla'], ['0187', 'Habasswein'], ['0188', 'Lagboghol South'], ['0189', 'Ibrahim Ure'], ['0190', 'Diif']] }
   ],
@@ -47,7 +47,7 @@ export const AREAS: Record<string, Area[]> = {
     { code: '045', name: 'Moyale', wards: [['0221', 'Butiye'], ['0222', 'Sololo'], ['0223', 'Heillu/Manyatta'], ['0224', 'Golbo'], ['0225', 'Moyale Township'], ['0226', 'Uran'], ['0227', 'Obbu']] },
     { code: '046', name: 'North Horr', wards: [['0228', 'Dukana'], ['0229', 'Maikona'], ['0230', 'Turbi'], ['0231', 'North Horr'], ['0232', 'Illeret']] },
     { code: '047', name: 'Saku', wards: [['0233', 'Sagante/Jaldesa'], ['0234', 'Karare'], ['0235', 'Marsabit Central']] },
-    { code: '048', name: 'Laisamis', wards: [['0236', 'Loiyangalani'], ['0237', 'Kargi/South Horr'], ['0238', 'Korr/Ngurunit'], ['0239', 'Log Logo'], ['0240', 'Laisamis']] }
+    { code: '048', name: 'Laisamis', wards: [['0236', 'Loiyangalani'], ['0237', 'Kargi/South Horr'], ['0238', 'Korr/Ngurunit'], ['0239', 'Logo Logo'], ['0240', 'Laisamis']] }
   ],
   // Isiolo (011)
   '011': [
