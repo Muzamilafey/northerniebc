@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ErrorBox, Loading, PageHeader, PublicImage, StatusBadge } from '../../components/ui';
+import { ErrorBox, LiveBadge, Loading, PageHeader, PublicImage, StatusBadge } from '../../components/ui';
 import { fmtDateTime, fmtNumber, POSITION_LABELS } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
 
@@ -11,13 +12,18 @@ interface StationData {
 
 export default function Station() {
   const { stationId } = useParams();
-  const { data, error, loading } = useApi<StationData>(`/public/results/stations/${stationId}`);
+  const [paused, setPaused] = useState(false);
+  const { data, error, loading, updatedAt, stale } = useApi<StationData>(`/public/results/stations/${stationId}`, undefined, { refreshMs: paused ? undefined : 1000 });
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!data) return null;
   return (
     <div>
-      <PageHeader title={`${data.station.code} — ${data.station.name}`} subtitle={`Registered voters (station register): ${fmtNumber(data.station.registeredVoters)}`} />
+      <PageHeader
+        title={`${data.station.code} — ${data.station.name}`}
+        subtitle={`Registered voters (station register): ${fmtNumber(data.station.registeredVoters)}`}
+        actions={<div className="flex flex-wrap items-center gap-2"><LiveBadge updatedAt={updatedAt} stale={stale} paused={paused} /><button type="button" className="btn-ghost btn-sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)}>{paused ? 'Resume updates' : 'Pause updates'}</button></div>}
+      />
       <div className="grid gap-4 md:grid-cols-2">
         {data.results.map((r) => (
           <section key={r.position} className="card">

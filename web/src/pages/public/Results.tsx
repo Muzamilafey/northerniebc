@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Empty, ErrorBox, Loading, PageHeader, PublicImage, StatusBadge } from '../../components/ui';
+import { Empty, ErrorBox, LiveBadge, Loading, PageHeader, PublicImage, StatusBadge } from '../../components/ui';
 import { fmtDateTime, fmtNumber, fmtPct, POSITION_LABELS } from '../../lib/format';
-import { getSocket } from '../../lib/socket';
 import { useApi } from '../../lib/useApi';
 
 interface Election { _id: string; name: string; status: string; positions: { position: string; enabled: boolean }[] }
@@ -48,23 +47,8 @@ export default function Results() {
   const { data: wards } = useApi<{ items: Area[] }>(electionId && constituencyId ? `/public/elections/${electionId}/wards` : null, { constituencyId });
   const { data: stations } = useApi<{ items: Area[] }>(electionId && wardId ? `/public/elections/${electionId}/stations` : null, { wardId });
   const tallyQuery = useMemo(() => ({ electionId, position, countyId, constituencyId, wardId, pollingStationId }), [electionId, position, countyId, constituencyId, wardId, pollingStationId]);
-  const { data: tally, loading, error, reload } = useApi<Tally>(electionId && position ? '/public/results/tally' : null, tallyQuery);
-
-  useEffect(() => {
-    if (!electionId) return;
-    const s = getSocket();
-    s.emit('subscribe', { electionId });
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const onUpdate = () => {
-      clearTimeout(t);
-      t = setTimeout(() => void reload(), 1500);
-    };
-    s.on('results:updated', onUpdate);
-    return () => {
-      s.off('results:updated', onUpdate);
-      clearTimeout(t);
-    };
-  }, [electionId, reload]);
+  const [paused, setPaused] = useState(false);
+  const { data: tally, loading, error, reload, updatedAt, stale } = useApi<Tally>(electionId && position ? '/public/results/tally' : null, tallyQuery, { refreshMs: paused ? undefined : 1000 });
 
   const filtered = tally?.candidates.filter((c) => !q || `${c.fullName} ${c.party ?? ''}`.toLowerCase().includes(q.toLowerCase())) ?? [];
 
@@ -80,7 +64,11 @@ export default function Results() {
 
   return (
     <div>
-      <PageHeader title="Live Results" subtitle="Independent monitoring results from polling-station agents. Figures are labelled by verification status; no winner is declared here." />
+      <PageHeader
+        title="Live Results"
+        subtitle="Independent monitoring results from polling-station agents. Figures are labelled by verification status; no winner is declared here."
+        actions={tally && <div className="flex flex-wrap items-center gap-2"><LiveBadge updatedAt={updatedAt} stale={stale} paused={paused} /><button type="button" className="btn-ghost btn-sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)}>{paused ? 'Resume updates' : 'Pause updates'}</button></div>}
+      />
       <div className="card mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <label><span className="label">Election</span>
           <select className="input" value={electionId} onChange={(e) => set('electionId', e.target.value, ['countyId', 'constituencyId', 'wardId', 'pollingStationId', 'position'])}>

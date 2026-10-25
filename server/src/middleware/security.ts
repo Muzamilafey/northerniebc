@@ -60,4 +60,8 @@ export function limiter(name: string, opts: Partial<Options> & { windowMs: numbe
 export const loginLimiter = () => limiter('login', { windowMs: 15 * 60_000, limit: 20 });
 export const publicFormLimiter = () => limiter('public-form', { windowMs: 60 * 60_000, limit: 10 });
 export const donationLimiter = () => limiter('donation', { windowMs: 15 * 60_000, limit: 10 });
-export const apiLimiter = () => limiter('api', { windowMs: 60_000, limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 600) });
+const isLiveResultsRead = (req: { method: string; path: string }) => req.method === 'GET' && /^\/public\/results\//.test(req.path);
+/** General API limit. Live results reads have their own limit (they refresh every second and are served from a 1-second cache). */
+export const apiLimiter = () => limiter('api', { windowMs: 60_000, limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 600), skip: (req) => isLiveResultsRead(req) || (isTest && process.env.ENABLE_RATE_LIMIT_IN_TESTS !== '1') });
+/** Many viewers can share one address (mobile carrier NAT), so this is generous; each request is a cache read. */
+export const liveResultsLimiter = () => limiter('live-results', { windowMs: 60_000, limit: Number(process.env.LIVE_RESULTS_RATE_LIMIT_PER_MIN ?? 3000) });

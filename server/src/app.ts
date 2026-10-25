@@ -7,7 +7,7 @@ import { pinoHttp } from 'pino-http';
 import { corsOrigins, env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
-import { apiLimiter, rejectMongoOperators } from './middleware/security.js';
+import { apiLimiter, liveResultsLimiter, rejectMongoOperators } from './middleware/security.js';
 import { accountabilityAdminRouter, accountabilityPublicRouter } from './modules/accountability/routes.js';
 import { approvalsRouter } from './modules/approvals/routes.js';
 import { auditLogRouter } from './modules/auditlog/routes.js';
@@ -57,6 +57,7 @@ export function createApp() {
   app.use(express.urlencoded({ extended: false, limit: '200kb' }));
   app.use(cookieParser());
   app.use(rejectMongoOperators);
+  app.use('/api/public/results', liveResultsLimiter());
   app.use('/api', apiLimiter());
 
   app.use('/api/auth', authRouter());

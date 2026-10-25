@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { fmtDate, humanize } from '../lib/format';
 
@@ -244,5 +244,27 @@ export function Segmented<T extends string>({ value, onChange, options, label }:
         </button>
       ))}
     </div>
+  );
+}
+
+/** "Live" indicator for pages that refresh every second. */
+export function LiveBadge({ updatedAt, stale, paused }: { updatedAt: Date | null; stale?: boolean; paused?: boolean }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ago = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt.getTime()) / 1000)) : null;
+  const state = paused ? 'paused' : stale ? 'stale' : 'live';
+  const dot = state === 'live' ? 'bg-green-500' : state === 'stale' ? 'bg-amber-500' : 'bg-gray-400';
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm">
+      <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+        {state === 'live' && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60 motion-reduce:hidden" />}
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dot}`} />
+      </span>
+      {state === 'paused' ? 'Updates paused' : state === 'stale' ? 'Reconnecting…' : 'Live · updates every second'}
+      {ago != null && <span className="text-gray-500">· updated {ago < 2 ? 'just now' : `${ago}s ago`}</span>}
+    </span>
   );
 }

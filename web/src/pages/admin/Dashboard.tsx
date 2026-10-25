@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Empty, ErrorBox, Loading, PageHeader, Stat, StatusBadge } from '../../components/ui';
+import { Empty, ErrorBox, LiveBadge, Loading, PageHeader, Stat, StatusBadge } from '../../components/ui';
 import { fmtDateTime, fmtNumber, fmtPct, POSITION_LABELS } from '../../lib/format';
 import { getSocket } from '../../lib/socket';
 import { useApi } from '../../lib/useApi';
@@ -17,22 +17,20 @@ export default function Dashboard() {
   const eid = electionId || el?.items[0]?._id || '';
   const election = el?.items.find((e) => e._id === eid);
   const pos = position || election?.positions.find((p) => p.enabled)?.position || '';
-  const dash = useApi<Dash>(eid ? '/verification/dashboard' : null, { electionId: eid, countyId, position: pos });
-  const tally = useApi<{ candidates: { candidateId: string; fullName: string; votes: number; verifiedVotes: number; share: number | null }[]; overallStatus: string }>(eid && pos ? '/verification/tally' : null, { electionId: eid, position: pos, countyId });
+  const [paused, setPaused] = useState(false);
+  const live = { refreshMs: paused ? undefined : 1000 };
+  const dash = useApi<Dash>(eid ? '/verification/dashboard' : null, { electionId: eid, countyId, position: pos }, live);
+  const tally = useApi<{ candidates: { candidateId: string; fullName: string; votes: number; verifiedVotes: number; share: number | null }[]; overallStatus: string }>(eid && pos ? '/verification/tally' : null, { electionId: eid, position: pos, countyId }, live);
   const [feed, setFeed] = useState<{ at: Date; type: string; submissionId?: string }[]>([]);
 
   useEffect(() => {
     if (!eid) return;
     const s = getSocket();
     s.emit('subscribe', { electionId: eid });
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const h = (e: { type: string; submissionId?: string }) => {
-      setFeed((f) => [{ at: new Date(), ...e }, ...f].slice(0, 20));
-      clearTimeout(t);
-      t = setTimeout(() => { void dash.reload(); void tally.reload(); }, 1000);
-    };
+    // Figures refresh every second (see `live`); the socket only feeds the activity list.
+    const h = (e: { type: string; submissionId?: string }) => setFeed((f) => [{ at: new Date(), ...e }, ...f].slice(0, 20));
     s.on('admin:results', h);
-    return () => { s.off('admin:results', h); clearTimeout(t); };
+    return () => { s.off('admin:results', h); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eid]);
 
@@ -41,7 +39,11 @@ export default function Dashboard() {
   const d = dash.data;
   return (
     <div className="space-y-4">
-      <PageHeader title="Results monitoring" subtitle="Raw submissions, accepted results and published results are tracked separately. Figures below include unverified data within your scope." />
+      <PageHeader
+        title="Results monitoring"
+        subtitle="Raw submissions, accepted results and published results are tracked separately. Figures below include unverified data within your scope."
+        actions={dash.data && <div className="flex flex-wrap items-center gap-2"><LiveBadge updatedAt={dash.updatedAt} stale={dash.stale || tally.stale} paused={paused} /><button type="button" className="btn-ghost btn-sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)}>{paused ? 'Resume updates' : 'Pause updates'}</button></div>}
+      />
       <div className="card grid gap-3 sm:grid-cols-3">
         <select className="input" value={eid} onChange={(e) => { setElectionId(e.target.value); setPosition(''); }} aria-label="Election">{el.items.map((e) => <option key={e._id} value={e._id}>{e.name} ({e.status})</option>)}</select>
         <select className="input" value={pos} onChange={(e) => setPosition(e.target.value)} aria-label="Position">{election?.positions.filter((p) => p.enabled).map((p) => <option key={p.position} value={p.position}>{POSITION_LABELS[p.position]}</option>)}</select>

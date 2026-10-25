@@ -347,8 +347,9 @@ export function publicResultsRouter() {
   r.get('/results/tally', async (req, res) => {
     const q = parse(geoQuery, req.query);
     const key = `tally:${q.electionId}:${JSON.stringify(q)}`;
-    res.set('Cache-Control', 'public, max-age=5');
-    res.json(await cached(key, 5000, () => tally({ electionId: q.electionId, position: q.position, geo: q, audience: 'public' })));
+    // Pages refresh every second; one computation per second per query, however many viewers.
+    res.set('Cache-Control', 'public, max-age=1');
+    res.json(await cached(key, 1000, () => tally({ electionId: q.electionId, position: q.position, geo: q, audience: 'public' })));
   });
 
   r.get('/results/breakdown', async (req, res) => {
@@ -357,13 +358,18 @@ export function publicResultsRouter() {
       req.query
     );
     const key = `tally:${q.electionId}:breakdown:${JSON.stringify(q)}`;
-    res.set('Cache-Control', 'public, max-age=5');
-    res.json({ items: await cached(key, 5000, () => breakdown({ ...q, audience: 'public' })), disclaimer: PUBLIC_DISCLAIMER });
+    res.set('Cache-Control', 'public, max-age=1');
+    res.json({ items: await cached(key, 1000, () => breakdown({ ...q, audience: 'public' })), disclaimer: PUBLIC_DISCLAIMER });
   });
 
   /** All positions for one polling station (shareable station page). No agent or evidence data. */
   r.get('/results/stations/:stationId', async (req, res) => {
-    const station = await PollingStation.findById(String(req.params.stationId)).select('code name countyId constituencyId wardId electionId registeredVoters').lean();
+    res.set('Cache-Control', 'public, max-age=1');
+    res.json(await cached(`tally:station:${String(req.params.stationId)}`, 1000, () => stationPage(String(req.params.stationId))));
+  });
+
+  async function stationPage(stationId: string) {
+    const station = await PollingStation.findById(stationId).select('code name countyId constituencyId wardId electionId registeredVoters').lean();
     if (!station) throw notFound();
     const election = await Election.findById(station.electionId).lean();
     if (!election || election.status === 'DRAFT') throw notFound();
@@ -374,7 +380,7 @@ export function publicResultsRouter() {
     const ids = results.flatMap((x) => x.candidateVotes.map((c) => c.candidateId));
     const cands = await Candidate.find({ _id: { $in: ids } }).select('fullName party partyAbbreviation photoFileId partyId').populate('partyId', 'logoFileId').lean();
     const cm = new Map(cands.map((c) => [String(c._id), { fullName: c.fullName, party: c.party, partyAbbreviation: c.partyAbbreviation, photoFileId: c.photoFileId ?? null, partyLogoFileId: (c.partyId as unknown as { logoFileId?: unknown } | null)?.logoFileId ?? null }]));
-    res.json({
+    return {
       station,
       results: POSITIONS.filter((p) => election.positions.some((x) => x.position === p && x.enabled)).map((p) => {
         const sr = results.find((x) => x.position === p);
@@ -390,8 +396,8 @@ export function publicResultsRouter() {
         };
       }),
       disclaimer: PUBLIC_DISCLAIMER
-    });
-  });
+    };
+  }
 
   return r;
 }
