@@ -20,3 +20,6 @@ export const POSITION_LABELS: Record<string, string> = {
   MCA: 'Member of County Assembly'
 };
 export const POSITIONS = Object.keys(POSITION_LABELS);
+
+/** Clock time with seconds, e.g. "18:04:09". */
+export const fmtTime = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });

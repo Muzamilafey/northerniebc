@@ -52,6 +52,7 @@ const electionBody = z.object({
     .refine((v) => v.mode !== 'SCHEDULED' || v.opensAt || v.closesAt, 'A schedule needs an opening or a closing time')
     .refine((v) => !v.opensAt || !v.closesAt || v.closesAt > v.opensAt, 'The closing time must be after the opening time')
     .optional(),
+  agentNotice: z.object({ text: z.string().trim().max(500) }).transform((n) => ({ text: n.text, updatedAt: new Date() })).optional(),
   sourceId: objectId.optional()
 });
 

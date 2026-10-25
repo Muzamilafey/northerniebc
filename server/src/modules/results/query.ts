@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { decryptOptional, maskPhone } from '../../lib/crypto.js';
 import { notFound } from '../../lib/errors.js';
 import {
   Candidate,
@@ -10,6 +11,7 @@ import {
   Session,
   AgentAssignment,
   StationResult,
+  User,
   Ward,
   type Position,
   type PublicResultStatus
@@ -216,5 +218,63 @@ export async function adminDashboard(electionId: string, geo: GeoFilter, scope: 
     activeAgents: activeAgents.length,
     lastDataUpdate: lastSub?.lastServerReceivedAt ?? null,
     generatedAt: new Date()
+  };
+}
+
+/** Station-by-station agent coverage for election day, within the user's scope. */
+export async function electionCoverage(electionId: string, geo: GeoFilter, scope: Record<string, unknown>, position?: Position) {
+  const e = oid(electionId);
+  const g = geoMatch(geo);
+  const SILENT_MS = 30 * 60_000;
+  const stations = await PollingStation.find({ electionId: e, active: true, ...g, ...scope }).select('code name wardId registeredVoters').sort({ code: 1 }).limit(5000).lean();
+  const ids = stations.map((s) => s._id);
+  const [assignments, reported, wards] = await Promise.all([
+    AgentAssignment.find({ electionId: e, active: true, pollingStationId: { $in: ids } }).select('userId pollingStationId').lean(),
+    StationResult.distinct('pollingStationId', { electionId: e, pollingStationId: { $in: ids }, ...(position ? { position } : {}) }),
+    Ward.find({ _id: { $in: [...new Set(stations.map((s) => String(s.wardId)))] } }).select('name').lean()
+  ]);
+  const agentIds = [...new Set(assignments.map((a) => String(a.userId)))];
+  const [agents, seen] = await Promise.all([
+    User.find({ _id: { $in: agentIds } }).select('fullName agentCode status vetting.status phoneEnc').lean(),
+    Session.aggregate<{ _id: unknown; last: Date }>([{ $match: { userId: { $in: agentIds.map(oid) }, revokedAt: null } }, { $group: { _id: '$userId', last: { $max: '$lastUsedAt' } } }])
+  ]);
+  const lastSeen = new Map(seen.map((x) => [String(x._id), x.last]));
+  const agentInfo = new Map(
+    agents.map((u) => {
+      const at = lastSeen.get(String(u._id)) ?? null;
+      return [
+        String(u._id),
+        {
+          id: String(u._id),
+          fullName: u.fullName,
+          agentCode: u.agentCode ?? null,
+          status: u.status,
+          approved: u.vetting?.status === 'APPROVED',
+          lastSeenAt: at,
+          active: Boolean(at && Date.now() - new Date(at).getTime() < SILENT_MS),
+          phoneMasked: maskPhone(decryptOptional(u.phoneEnc)) ?? null
+        }
+      ];
+    })
+  );
+  const reportedSet = new Set(reported.map(String));
+  const wardName = new Map(wards.map((w) => [String(w._id), w.name]));
+  const rows = stations.map((s) => {
+    const list = assignments.filter((a) => String(a.pollingStationId) === String(s._id)).map((a) => agentInfo.get(String(a.userId))).filter((x): x is NonNullable<typeof x> => Boolean(x));
+    return { station: { id: String(s._id), code: s.code, name: s.name, ward: wardName.get(String(s.wardId)) ?? null, registeredVoters: s.registeredVoters ?? null }, agents: list, reported: reportedSet.has(String(s._id)) };
+  });
+  const usable = (a: { status: string; approved: boolean }) => a.status === 'ACTIVE' && a.approved;
+  return {
+    generatedAt: new Date(),
+    summary: {
+      stations: rows.length,
+      withoutAgent: rows.filter((r) => !r.agents.some(usable)).length,
+      agentsNotApproved: [...agentInfo.values()].filter((a) => a.status === 'ACTIVE' && !a.approved).length,
+      silentAgents: [...agentInfo.values()].filter((a) => usable(a) && !a.active).length,
+      reported: rows.filter((r) => r.reported).length,
+      notReported: rows.filter((r) => !r.reported).length
+    },
+    rows,
+    truncated: stations.length === 5000
   };
 }

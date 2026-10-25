@@ -66,6 +66,10 @@ Restart the API, then run `npm run files:rescan -w server` to release images upl
 
 ## On election day
 
+- **Election-day coverage** (Overview → Election-day coverage): every polling station with its agent, when the agent was last seen, and whether the station has reported. Filter to stations with **no approved agent**, agents **quiet for 30+ minutes**, agents **awaiting approval**, or stations **not reported**. Updates every 5 seconds.
+- **Message to agents** (Election setup, per election): a short message shown at the top of every assigned agent's screen within a few seconds — opening time, what to bring, who to call. Remove it when it no longer applies.
+- **Agent screens** re-check assignments, the results window and messages every 5 seconds while open and online (not every second, to save agents' mobile data and battery). When results are scheduled, agents see a live countdown to opening or closing, corrected for a wrong phone clock using the server's time.
+
 - **Results dashboard**: coverage, outstanding stations, submissions awaiting verification, conflicts, active agents, a live activity feed.
 - **Verification queue**: open each submission, compare it with the photographed form and any other submissions for the same station, write a decision note, then verify or reject.
 - Replacing an already-verified result (or rejecting the submission behind it) goes to **Second-review approvals**, where a different reviewer must approve it.

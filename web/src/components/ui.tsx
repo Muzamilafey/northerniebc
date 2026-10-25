@@ -248,7 +248,7 @@ export function Segmented<T extends string>({ value, onChange, options, label }:
 }
 
 /** "Live" indicator for pages that refresh every second. */
-export function LiveBadge({ updatedAt, stale, paused }: { updatedAt: Date | null; stale?: boolean; paused?: boolean }) {
+export function LiveBadge({ updatedAt, stale, paused, label = 'Live · updates every second' }: { updatedAt: Date | null; stale?: boolean; paused?: boolean; label?: string }) {
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 1000);
@@ -263,7 +263,7 @@ export function LiveBadge({ updatedAt, stale, paused }: { updatedAt: Date | null
         {state === 'live' && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60 motion-reduce:hidden" />}
         <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dot}`} />
       </span>
-      {state === 'paused' ? 'Updates paused' : state === 'stale' ? 'Reconnecting…' : 'Live · updates every second'}
+      {state === 'paused' ? 'Updates paused' : state === 'stale' ? 'Reconnecting…' : label}
       {ago != null && <span className="text-gray-500">· updated {ago < 2 ? 'just now' : `${ago}s ago`}</span>}
     </span>
   );

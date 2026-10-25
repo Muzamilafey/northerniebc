@@ -75,3 +75,38 @@ describe('agent sign-in switch', () => {
     expect((await request(app).get('/api/agent/assignments').set(signedIn.auth)).status).toBe(200);
   });
 });
+
+describe('agent messages and election-day coverage', () => {
+  it('shows an administrator message on the agent screen', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    const agent = await as(app, 'AGENT', { vetting: 'APPROVED' });
+    await assign(agent.id, fx.election._id, fx.stations[1]!);
+    const eid = String(fx.election._id);
+    expect((await request(app).patch(`/api/admin/elections/${eid}`).set(sa.auth).send({ agentNotice: { text: 'Results open at 6 pm. Charge your phones.' } })).status).toBe(200);
+    const r = await request(app).get('/api/agent/assignments').set(agent.auth);
+    const mine = r.body.assignments.find((a: { election: { id: string } }) => a.election.id === eid);
+    expect(mine.election.notice.text).toBe('Results open at 6 pm. Charge your phones.');
+    expect(mine.ballots[0].candidates.length).toBeGreaterThan(0);
+    await request(app).patch(`/api/admin/elections/${eid}`).set(sa.auth).send({ agentNotice: { text: '' } });
+    const r2 = await request(app).get('/api/agent/assignments').set(agent.auth);
+    expect(r2.body.assignments.find((a: { election: { id: string } }) => a.election.id === eid).election.notice).toBeNull();
+  });
+
+  it('reports stations without an agent and agents not seen, within scope', async () => {
+    const sa = await as(app, 'SUPER_ADMIN');
+    const eid = String(fx.election._id);
+    const r = await request(app).get('/api/verification/coverage').set(sa.auth).query({ electionId: eid });
+    expect(r.status).toBe(200);
+    expect(r.body.summary.stations).toBe(r.body.rows.length);
+    const covered = r.body.rows.filter((x: { agents: { approved: boolean }[] }) => x.agents.some((a) => a.approved));
+    expect(covered.length).toBeGreaterThan(0);
+    expect(r.body.summary.withoutAgent).toBe(r.body.rows.length - covered.length);
+    const seenAgent = covered.flatMap((x: { agents: { active: boolean; lastSeenAt: string | null }[] }) => x.agents).find((a: { active: boolean }) => a.active);
+    expect(seenAgent.lastSeenAt).toBeTruthy();
+    // A county administrator sees only stations in their county.
+    const ca = await as(app, 'COUNTY_ADMIN', { scope: { countyIds: [String(fx.other._id)] } });
+    const scoped = await request(app).get('/api/verification/coverage').set(ca.auth).query({ electionId: eid });
+    expect(scoped.body.rows.map((x: { station: { code: string } }) => x.station.code)).toEqual(['PSX']);
+    expect((await request(app).get('/api/verification/coverage').set((await as(app, 'AGENT')).auth).query({ electionId: eid })).status).toBe(403);
+  });
+});

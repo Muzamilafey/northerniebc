@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../../lib/api';
 import { Empty, ErrorBox, Field, PageHeader, Segmented, Success } from '../../components/ui';
 import { Icon } from '../../components/icons';
+import { Countdown } from '../../components/Countdown';
 import { fmtDate, POSITION_LABELS, POSITIONS } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
 import { Modal, ModalActions, useDialog } from '../../components/Dialog';
@@ -15,13 +16,41 @@ const RULES: [string, string][] = [
 ];
 interface PositionCfg { position: string; enabled: boolean; formCode?: string; formReferenceLabel: string; requiredFields: string[]; rules: string[]; requireEvidence: boolean }
 interface Intake { mode: 'OPEN' | 'CLOSED' | 'SCHEDULED'; opensAt?: string | null; closesAt?: string | null }
-interface Election { _id: string; name: string; slug: string; type: string; electionDate: string; status: string; publishProvisional: boolean; positions: PositionCfg[]; resultsIntake?: Intake; intake?: { open: boolean; message: string } }
+interface Election { _id: string; name: string; slug: string; type: string; electionDate: string; status: string; publishProvisional: boolean; positions: PositionCfg[]; resultsIntake?: Intake; intake?: { open: boolean; message: string; mode: string; opensAt: string | null; closesAt: string | null }; agentNotice?: { text?: string; updatedAt?: string } }
 
 /** East Africa Time is UTC+3 all year (no daylight saving). datetime-local values are entered in EAT. */
+function AgentNotice({ election, onSave }: { election: Election; onSave: (text: string) => Promise<void> }) {
+  const saved = election.agentNotice?.text ?? '';
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const save = async (t: string) => {
+    setBusy(true);
+    try {
+      await onSave(t);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-4 rounded-xl border border-gray-200 p-4">
+      <p className="font-semibold text-navy-900">Message to agents</p>
+      <p className="text-xs text-gray-500">Shown at the top of every assigned agent's screen within a few seconds, e.g. opening time, what to bring, who to call.{election.agentNotice?.updatedAt && saved ? ` Last changed ${new Date(election.agentNotice.updatedAt).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short' })} EAT.` : ''}</p>
+      <textarea className="input mt-2" rows={2} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} placeholder="No message" aria-label="Message to agents" />
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-xs text-gray-400">{text.length}/500</span>
+        <div className="flex gap-2">
+          {saved && <button className="btn-ghost btn-sm text-red-700" disabled={busy} onClick={() => { setText(''); void save(''); }}>Remove message</button>}
+          <button className="btn-accent btn-sm" disabled={busy || text.trim() === saved} onClick={() => void save(text.trim())}>{busy ? 'Saving…' : saved ? 'Update message' : 'Send to agents'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const toEatInput = (iso?: string | null) => (iso ? new Date(new Date(iso).getTime() + 3 * 3600_000).toISOString().slice(0, 16) : '');
 const fromEatInput = (v: string) => (v ? new Date(`${v}:00+03:00`).toISOString() : null);
 
-function IntakeControl({ election, onSave }: { election: Election; onSave: (intake: Intake) => Promise<void> }) {
+function IntakeControl({ election, onSave, onTick }: { election: Election; onSave: (intake: Intake) => Promise<void>; onTick: () => void }) {
   const cur = election.resultsIntake ?? { mode: 'OPEN' as const };
   const [mode, setMode] = useState<Intake['mode']>(cur.mode ?? 'OPEN');
   const [opens, setOpens] = useState(toEatInput(cur.opensAt));
@@ -45,6 +74,8 @@ function IntakeControl({ election, onSave }: { election: Election; onSave: (inta
             <span className={`h-2 w-2 rounded-full ${election.intake?.open ? 'bg-green-600' : 'bg-amber-500'}`} aria-hidden="true" />
             {election.intake?.open ? 'Open now' : 'Not receiving now'} — {election.intake?.message}
           </p>
+          {election.intake && !election.intake.open && election.intake.mode === 'SCHEDULED' && election.intake.opensAt && new Date(election.intake.opensAt) > new Date() && <p className="mt-1 text-sm text-gray-700">Opens in <Countdown to={election.intake.opensAt} onDone={onTick} /></p>}
+          {election.intake?.open && election.intake.closesAt && <p className="mt-1 text-sm text-gray-700">Closes in <Countdown to={election.intake.closesAt} onDone={onTick} /></p>}
         </div>
         <Segmented label="Receiving results" value={mode} onChange={setMode} options={[{ value: 'OPEN', label: 'Open' }, { value: 'CLOSED', label: 'Paused' }, { value: 'SCHEDULED', label: 'Scheduled' }]} />
       </div>
@@ -69,7 +100,8 @@ const NEXT: Record<string, string[]> = { DRAFT: ['ACTIVE'], ACTIVE: ['CLOSED'], 
 
 export default function Elections() {
   const dialog = useDialog();
-  const list = useApi<{ items: Election[] }>('/admin/elections');
+  // Refreshes so the 'receiving results' status follows the schedule without reloading the page.
+  const list = useApi<{ items: Election[] }>('/admin/elections', undefined, { refreshMs: 5000 });
   const [err, setErr] = useState<string>();
   const [ok, setOk] = useState<string>();
   const [editing, setEditing] = useState<Election | null>(null);
@@ -140,7 +172,8 @@ export default function Elections() {
               <div className="mt-4 flex flex-wrap gap-2">
                 {enabled.length ? enabled.map((p) => <span key={p.position} className="badge bg-navy-50 text-navy-800">{POSITION_LABELS[p.position]}{p.formCode ? ` · Form ${p.formCode}` : ''}</span>) : <span className="text-sm text-amber-800">No positions enabled yet — configure them before activating.</span>}
               </div>
-              <IntakeControl key={JSON.stringify(e.resultsIntake ?? {})} election={e} onSave={(resultsIntake) => patch(e._id, { resultsIntake })} />
+              <IntakeControl key={JSON.stringify(e.resultsIntake ?? {})} election={e} onSave={(resultsIntake) => patch(e._id, { resultsIntake })} onTick={() => void list.reload()} />
+              <AgentNotice key={e.agentNotice?.updatedAt ?? 'none'} election={e} onSave={(text) => patch(e._id, { agentNotice: { text } })} />
               <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3 text-sm">
                 <input type="checkbox" className="mt-0.5" checked={e.publishProvisional} onChange={(x) => void patch(e._id, { publishProvisional: x.target.checked })} />
                 <span><span className="font-semibold">Publish provisional results</span><span className="block text-gray-600">Show unverified agent results to the public, clearly labelled as provisional.</span></span>

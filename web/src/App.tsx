@@ -27,6 +27,7 @@ const RegisterConfirm = lazy(() => import('./pages/public/Register').then((m) =>
 const AspirantList = lazy(() => import('./pages/admin/aspirants/AspirantList'));
 const AspirantNew = lazy(() => import('./pages/admin/aspirants/AspirantNew'));
 const Parties = lazy(() => import('./pages/admin/aspirants/Parties'));
+const Coverage = lazy(() => import('./pages/admin/Coverage'));
 const CountiesAdmin = lazy(() => import('./pages/admin/CountiesAdmin'));
 const SettingsPage = lazy(() => import('./pages/admin/Settings'));
 const Search = lazy(() => import('./pages/public/Search'));
@@ -127,6 +128,7 @@ export default function App() {
           <Route path="admin/aspirants" element={<AspirantList />} />
           <Route path="admin/aspirants/new" element={<AspirantNew />} />
           <Route path="admin/parties" element={<Parties />} />
+          <Route path="admin/coverage" element={<Coverage />} />
           <Route path="admin/counties" element={<CountiesAdmin />} />
           <Route path="verify" element={<Queue />} />
           <Route path="verify/submissions/:id" element={<SubmissionDetail />} />

@@ -158,6 +158,11 @@ const electionSchema = new Schema(
     positions: { type: [positionConfigSchema], default: [] },
     /** When false, only verified results are shown publicly. */
     publishProvisional: { type: Boolean, default: false },
+    /** Short message from administrators shown at the top of every assigned agent's screen. */
+    agentNotice: {
+      text: { type: String, maxlength: 500 },
+      updatedAt: { type: Date }
+    },
     /** When agents may send counts and results (see modules/elections/intake.ts). */
     resultsIntake: {
       mode: { type: String, enum: ['OPEN', 'CLOSED', 'SCHEDULED'], default: 'OPEN' },

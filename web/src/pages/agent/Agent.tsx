@@ -5,9 +5,10 @@ import { useAuth } from '../../lib/auth';
 import { draftKey, increment, newDraft, queue, setVotes, total, undoLast, type Change, type Draft, type UndoReason } from '../../lib/draft';
 import { allDrafts, getDraft, onSync, onTally, saveChange, saveDraft, sendTallies, syncNow, type SyncStatus, type TallyStatus } from '../../lib/offline';
 import { ErrorBox, Loading, Logo, PublicImage, StatusBadge, Success } from '../../components/ui';
-import { fmtDateTime, fmtNumber, humanize, POSITION_LABELS } from '../../lib/format';
+import { fmtDateTime, fmtNumber, fmtTime, humanize, POSITION_LABELS } from '../../lib/format';
 import { getMeta, setMeta } from '../../lib/offline';
 import { Modal, ModalActions } from '../../components/Dialog';
+import { Countdown } from '../../components/Countdown';
 
 interface Ballot {
   position: string;
@@ -23,7 +24,7 @@ interface Ballot {
 }
 interface Assignment {
   assignmentId: string;
-  election: { id: string; name: string; status: string; acceptingSubmissions: boolean; intake?: { open: boolean; mode: string; opensAt: string | null; closesAt: string | null; message: string } };
+  election: { id: string; name: string; status: string; acceptingSubmissions: boolean; intake?: { open: boolean; mode: string; opensAt: string | null; closesAt: string | null; message: string }; notice?: { text: string; updatedAt: string | null } | null };
   station: { id: string; code: string; name: string; registeredVoters: number | null };
   county?: string;
   constituency?: string;
@@ -44,11 +45,78 @@ async function loadAssignments(): Promise<{ data: AssignmentsResp | null; fromCa
   }
 }
 
-export function useAssignments() {
-  const [state, setState] = useState<{ data: AssignmentsResp | null; fromCache: boolean; error?: string; loading: boolean }>({ data: null, fromCache: false, loading: true });
-  const reload = useCallback(async () => setState({ ...(await loadAssignments()), loading: false }), []);
+/** How often the agent screens re-check assignments, results opening times and messages. */
+export const AGENT_REFRESH_MS = 5000;
+
+/**
+ * Assignments, refreshed silently every few seconds while the screen is visible and online.
+ * `clockOffsetMs` corrects countdowns for a phone whose clock is wrong (server time minus phone time).
+ */
+export function useAssignments(opts: { refreshMs?: number } = {}) {
+  const [state, setState] = useState<{ data: AssignmentsResp | null; fromCache: boolean; error?: string; loading: boolean; updatedAt: Date | null; clockOffsetMs: number }>({ data: null, fromCache: false, loading: true, updatedAt: null, clockOffsetMs: 0 });
+  const offset = (d: AssignmentsResp | null, fromCache: boolean) => (d && !fromCache ? new Date(d.serverTime).getTime() - Date.now() : 0);
+  const reload = useCallback(async () => {
+    const r = await loadAssignments();
+    setState((prev) => ({ ...r, loading: false, updatedAt: r.fromCache ? prev.updatedAt : new Date(), clockOffsetMs: r.fromCache ? prev.clockOffsetMs : offset(r.data, false) }));
+  }, []);
   useEffect(() => void reload(), [reload]);
+  const refreshMs = opts.refreshMs;
+  useEffect(() => {
+    if (!refreshMs) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      if (!document.hidden && navigator.onLine) {
+        try {
+          const d = await api<AssignmentsResp>('/agent/assignments');
+          await setMeta('assignments', d);
+          if (!stopped) setState({ data: d, fromCache: false, loading: false, updatedAt: new Date(), clockOffsetMs: offset(d, false) });
+        } catch {
+          // Keep what is on screen; the sync bar already shows when the phone is offline.
+        }
+      }
+      if (!stopped) timer = setTimeout(() => void tick(), refreshMs);
+    };
+    timer = setTimeout(() => void tick(), refreshMs);
+    const wake = () => {
+      if (!document.hidden) {
+        clearTimeout(timer);
+        void tick();
+      }
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', wake);
+    };
+  }, [refreshMs]);
   return { ...state, reload };
+}
+
+/** Results window status for an assignment: open/closed message, countdown, and the coordinators' message. */
+function ElectionStatus({ a, clockOffsetMs, onChange }: { a: Assignment; clockOffsetMs: number; onChange: () => void }) {
+  const i = a.election.intake;
+  const opensIn = i && !i.open && i.mode === 'SCHEDULED' && i.opensAt && new Date(i.opensAt).getTime() > Date.now() + clockOffsetMs ? i.opensAt : null;
+  const closesIn = i && i.open && i.closesAt ? i.closesAt : null;
+  return (
+    <div className="space-y-2">
+      {a.election.notice && (
+        <div className="rounded-lg border border-navy-100 bg-navy-50 p-3 text-sm text-navy-900" role="note">
+          <p className="text-xs font-semibold uppercase tracking-wide text-navy-700">Message from the coordinators</p>
+          <p className="mt-1 whitespace-pre-line">{a.election.notice.text}</p>
+        </div>
+      )}
+      <p className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${a.election.acceptingSubmissions ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-900'}`} role="status">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${a.election.acceptingSubmissions ? 'bg-green-600' : 'bg-amber-500'}`} aria-hidden="true" />
+        {i?.message ?? (a.election.acceptingSubmissions ? 'Receiving results.' : 'This election is not accepting results.')}
+        {opensIn && <span className="ml-auto">Opens in <Countdown to={opensIn} clockOffsetMs={clockOffsetMs} onDone={onChange} /></span>}
+        {closesIn && <span className="ml-auto">Closes in <Countdown to={closesIn} clockOffsetMs={clockOffsetMs} onDone={onChange} /></span>}
+      </p>
+    </div>
+  );
 }
 
 const STATUS_STYLE: Record<SyncStatus, string> = {
@@ -105,16 +173,21 @@ export function AgentLayout() {
 }
 
 export function AgentHome() {
-  const { data, fromCache, error, loading } = useAssignments();
+  const { data, fromCache, error, loading, reload, updatedAt, clockOffsetMs } = useAssignments({ refreshMs: AGENT_REFRESH_MS });
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  // Re-read local drafts whenever fresh assignments arrive, so statuses stay current.
   useEffect(() => {
     void allDrafts().then((ds) => setDrafts(Object.fromEntries(ds.map((d) => [d.key, d]))));
-  }, []);
+  }, [updatedAt]);
   if (loading) return <Loading />;
   if (!data) return <ErrorBox error={error ?? 'Could not load assignments'} />;
   return (
     <div className="space-y-4">
-      {fromCache && <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">Offline — showing your last downloaded assignments.</p>}
+      {fromCache ? (
+        <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">Offline — showing your last downloaded assignments.</p>
+      ) : (
+        <p className="text-right text-xs text-gray-500" aria-live="off">Updates automatically{updatedAt ? ` · checked ${fmtTime(updatedAt)}` : ''}</p>
+      )}
       {data.vettingStatus !== 'APPROVED' && <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{data.vettingStatus === 'REJECTED' ? 'Your agent account was not approved. Contact your supervisor.' : 'Your agent account is awaiting approval. An administrator must confirm your identity and accreditation before you can count or submit results.'}</p>}
       {data.assignments.length === 0 && <p className="card text-sm">You have no active polling-station assignment. Contact your supervisor.</p>}
       {data.assignments.map((a) => (
@@ -122,10 +195,7 @@ export function AgentHome() {
           <p className="text-xs text-gray-500">{a.election.name}</p>
           <h1 className="text-lg font-bold text-navy-900">{a.station.code} — {a.station.name}</h1>
           <p className="text-xs text-gray-600">{[a.ward, a.constituency, a.county].filter(Boolean).join(', ')} · Registered voters: {fmtNumber(a.station.registeredVoters)}</p>
-          <p className={`mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${a.election.acceptingSubmissions ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-900'}`} role="status">
-            <span className={`h-2 w-2 shrink-0 rounded-full ${a.election.acceptingSubmissions ? 'bg-green-600' : 'bg-amber-500'}`} aria-hidden="true" />
-            {a.election.intake?.message ?? (a.election.acceptingSubmissions ? 'Receiving results.' : 'This election is not accepting results.')}
-          </p>
+          <div className="mt-3"><ElectionStatus a={a} clockOffsetMs={clockOffsetMs} onChange={() => void reload()} /></div>
           <ul className="mt-3 divide-y">
             {a.ballots.map((b) => {
               const d = drafts[draftKey(a.election.id, a.station.id, b.position)];
@@ -160,7 +230,7 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function CountScreen() {
   const { electionId, stationId, position } = useParams() as { electionId: string; stationId: string; position: string };
-  const { data } = useAssignments();
+  const { data, reload: reloadAssignments, clockOffsetMs } = useAssignments({ refreshMs: AGENT_REFRESH_MS });
   const a = data?.assignments.find((x) => x.election.id === electionId && x.station.id === stationId);
   const ballot = a?.ballots.find((b) => b.position === position);
   const [d, setD] = useState<Draft | null>(null);
@@ -176,15 +246,21 @@ export function CountScreen() {
     return () => void off();
   }, []);
 
+  // Load the draft once per ballot. Keyed on the ballot's content, not the object, so the
+  // background refresh of assignments never reloads the draft in the middle of counting.
+  const ballotRef = useRef(ballot);
+  ballotRef.current = ballot;
+  const ballotKey = ballot ? `${ballot.position}|${ballot.candidates.map((c) => c.id).join(',')}` : '';
   useEffect(() => {
-    if (!ballot) return;
+    const b = ballotRef.current;
+    if (!b) return;
     void (async () => {
       const key = draftKey(electionId, stationId, position);
       let existing = await getDraft(key);
-      if (!existing) existing = newDraft(electionId, stationId, position, ballot.candidates.map((c) => c.id), ballot.submission?.currentRevision ?? null);
+      if (!existing) existing = newDraft(electionId, stationId, position, b.candidates.map((c) => c.id), b.submission?.currentRevision ?? null);
       setD(existing);
     })();
-  }, [ballot, electionId, stationId, position]);
+  }, [ballotKey, electionId, stationId, position]);
 
   useEffect(() => {
     if (!d) return;
@@ -285,12 +361,7 @@ export function CountScreen() {
       {d.state === 'FAILED' && <ErrorBox error={`Not accepted by the server: ${d.lastError}. Fix the figures and submit again.`} />}
       {d.state === 'QUEUED' && <p className="rounded bg-amber-50 p-2 text-sm text-amber-900">Queued on this phone — not yet received by the server. {d.lastError ? `Last attempt: ${d.lastError}` : ''}</p>}
 
-      {!a.election.acceptingSubmissions && (
-        <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900" role="status">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
-          {a.election.intake?.message ?? 'This election is not accepting results.'} Counting resumes when results open.
-        </p>
-      )}
+      <ElectionStatus a={a} clockOffsetMs={clockOffsetMs} onChange={() => void reloadAssignments()} />
       {step === 'count' ? (
         <>
           <ul className="space-y-2">

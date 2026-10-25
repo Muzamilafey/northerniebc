@@ -36,7 +36,7 @@ import {
 import { eligibleCandidates } from '../elections/service.js';
 import { ALLOWED_MIME, saveFile } from '../files/storage.js';
 import { objectId } from '../users/routes.js';
-import { adminDashboard, breakdown, publicStatuses, tally, PUBLIC_DISCLAIMER } from './query.js';
+import { adminDashboard, electionCoverage, breakdown, publicStatuses, tally, PUBLIC_DISCLAIMER } from './query.js';
 import { candidateDifferences } from './reconciliation.js';
 import { DECLARATION_TEXT, decide, startReview, submitResult } from './service.js';
 import { assertVettedAgent, getCountSession, recordTallyEvents } from '../counting/service.js';
@@ -167,6 +167,8 @@ export function agentRouter() {
       const ballots = [];
       for (const p of election.positions.filter((x) => x.enabled)) {
         const candidates = await eligibleCandidates(station, p.position as Position);
+        const partyIds = [...new Set(candidates.map((c) => c.partyId).filter(Boolean).map(String))];
+        const logos = new Map((await Party.find({ _id: { $in: partyIds } }).select('logoFileId').lean()).map((x) => [String(x._id), x.logoFileId ?? null]));
         const sub = await ResultSubmission.findOne({ electionId: election._id, pollingStationId: station._id, position: p.position, agentId: req.user!.id }).lean();
         const tpl = FORM_TEMPLATES[p.position as Position];
         ballots.push({
@@ -178,13 +180,13 @@ export function agentRouter() {
           requiredFields: p.requiredFields,
           rules: p.rules,
           requireEvidence: p.requireEvidence,
-          candidates: await Promise.all(candidates.map(async (c) => ({ id: String(c._id), fullName: c.fullName, party: c.party, partyAbbreviation: c.partyAbbreviation, photoFileId: c.photoFileId ?? null, partyLogoFileId: c.partyId ? ((await Party.findById(c.partyId).select('logoFileId').lean())?.logoFileId ?? null) : null }))),
+          candidates: candidates.map((c) => ({ id: String(c._id), fullName: c.fullName, party: c.party, partyAbbreviation: c.partyAbbreviation, photoFileId: c.photoFileId ?? null, partyLogoFileId: (c.partyId && logos.get(String(c.partyId))) ?? null })),
           submission: sub ? { submissionId: sub.submissionId, status: sub.status, currentRevision: sub.currentRevision, hasConflict: sub.hasConflict } : null
         });
       }
       out.push({
         assignmentId: String(a._id),
-        election: { id: String(election._id), name: election.name, status: election.status, acceptingSubmissions: intakeState(election).open, intake: intakeState(election) },
+        election: { id: String(election._id), name: election.name, status: election.status, acceptingSubmissions: intakeState(election).open, intake: intakeState(election), notice: election.agentNotice?.text ? { text: election.agentNotice.text, updatedAt: election.agentNotice.updatedAt ?? null } : null },
         station: { id: String(station._id), code: station.code, name: station.name, registeredVoters: station.registeredVoters ?? null },
         county: county?.name,
         constituency: constituency?.name,
@@ -251,6 +253,12 @@ export function verificationRouter() {
   r.get('/dashboard', monitor, async (req, res) => {
     const q = parse(geoQuery.partial({ position: true }), req.query);
     res.json(await adminDashboard(q.electionId, q, scopeFilter(req.user!), q.position));
+  });
+
+  /** Election-day coverage: which stations have an agent, whether the agent has been seen, and what has been reported. */
+  r.get('/coverage', monitor, async (req, res) => {
+    const q = parse(geoQuery.partial({ position: true }), req.query);
+    res.json(await electionCoverage(q.electionId, q, scopeFilter(req.user!), q.position));
   });
 
   r.get('/tally', monitor, async (req, res) => {

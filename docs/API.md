@@ -47,6 +47,8 @@ Live counting and safeguards (agent):
 ## Verification — `/api/verification`
 `GET /dashboard`, `/tally`, `/submissions`, `/submissions/:submissionId` · `POST /submissions/:id/extract {fileId}` (rerun AI reading) · `POST /submissions/:id/start-review {note}` · `POST /submissions/:id/decision {revision, decision: VERIFY|REJECT, note}`. Returns 202 with `approvalId` when a second reviewer is required.
 
+- `GET /verification/coverage?electionId&countyId&position` — per-station agent coverage (assigned agents, approval, last seen, reported) and a summary, within the caller's scope.
+
 ## Approvals — `/api/approvals`
 `GET /` · `POST /:id/approve|reject {note}`. The approver must be a different user from the requester. Kinds: `RESULT_CORRECTION`, `MANUAL_RECONCILIATION`, `REFUND`.
 

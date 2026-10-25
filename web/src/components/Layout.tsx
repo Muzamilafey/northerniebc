@@ -158,7 +158,13 @@ export function StaffLayout() {
   const r = user?.role;
   const catalog = r === 'SUPER_ADMIN' || r === 'REGIONAL_ADMIN';
   const groups: [string, NavItem[]][] = [
-    ['Overview', [{ to: '/admin', label: 'Results dashboard', icon: 'chart', show: can.monitor(r), end: true }]],
+    [
+      'Overview',
+      [
+        { to: '/admin', label: 'Results dashboard', icon: 'chart', show: can.monitor(r), end: true },
+        { to: '/admin/coverage', label: 'Election-day coverage', icon: 'globe', show: can.monitor(r) }
+      ]
+    ],
     [
       'Results',
       [
