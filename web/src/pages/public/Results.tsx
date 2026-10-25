@@ -135,7 +135,7 @@ export default function Results() {
                     <XAxis type="number" />
                     <YAxis type="category" dataKey="fullName" width={120} tick={{ fontSize: 12 }} />
                     <Tooltip formatter={(v: number) => fmtNumber(v)} />
-                    <Bar dataKey="votes" fill="#d17426" name="Votes" />
+                    <Bar dataKey="votes" fill="#d17426" name="Votes" isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

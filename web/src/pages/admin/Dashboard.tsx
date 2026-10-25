@@ -72,8 +72,8 @@ export default function Dashboard() {
                 <XAxis dataKey="fullName" tick={{ fontSize: 11 }} />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="verifiedVotes" stackId="a" fill="#0f766e" name="Verified" />
-                <Bar dataKey={(c: { votes: number; verifiedVotes: number }) => c.votes - c.verifiedVotes} stackId="a" fill="#eaa363" name="Unverified" />
+                <Bar dataKey="verifiedVotes" stackId="a" fill="#0f766e" name="Verified" isAnimationActive={false} />
+                <Bar dataKey={(c: { votes: number; verifiedVotes: number }) => c.votes - c.verifiedVotes} stackId="a" fill="#eaa363" name="Unverified" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           )}
